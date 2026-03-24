@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": [
+    "vite.config.mts",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/gateway/**/*",
+    "src/database/**/*"
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "name": "sample-plugin",
+  "version": "1.0.0",
+  "description": "示例插件 - 展示插件配置结构",
+  "author": "KAEL",
+  "main": "index.js",
+  "priority": 1,
+  "dependencies": [
+    "logger-enhanced"
+  ],
+  "optionalDependencies": [
+    "export-plugin"
+  ],
+  "minVersion": "1.0.0",
+  "configSchema": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "是否启用插件"
+    },
+    "logLevel": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"],
+      "default": "info",
+      "description": "日志级别"
+    },
+    "maxRetries": {
+      "type": "number",
+      "default": 3,
+      "minimum": 0,
+      "maximum": 10,
+      "description": "最大重试次数"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "插件标签"
+    }
+  },
+  "defaultConfig": {
+    "enabled": true,
+    "logLevel": "info",
+    "maxRetries": 3,
+    "tags": ["sample", "demo"]
+  }
+}

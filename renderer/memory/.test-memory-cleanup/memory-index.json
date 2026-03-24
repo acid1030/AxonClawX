@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "updatedAt": 1773378456468,
+  "entries": [
+    [
+      "file_ofxew5",
+      {
+        "id": "file_ofxew5",
+        "filePath": "/Users/nike/.openclaw/workspace/src/renderer/memory/.test-memory-cleanup/new.txt",
+        "content": "new",
+        "fileType": "txt",
+        "fileSize": 3,
+        "fileModifiedAt": 1773378456468.4773,
+        "createdAt": 1773378456468,
+        "lastAccessedAt": 1773378456468,
+        "tags": []
+      }
+    ]
+  ]
+}

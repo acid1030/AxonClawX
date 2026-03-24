@@ -1,0 +1,13 @@
+{
+  "name": "Sicherung und Wiederherstellung",
+  "description": "OpenClaw-Konfiguration, Gedächtnis und Gesprächsverlauf sichern, mit Unterstützung für Migration auf neue Geräte",
+  "content": {
+    "body": "## Was sichern?\n\n| Element | Pfad | Wichtigkeit |\n|---------|------|------------|\n| Konfiguration | `~/.clawdeckx/config.yaml` | Essentiell |\n| Agenten-Konfig | `~/.clawdeckx/agents/` | Essentiell |\n| Gedächtnisdateien | `~/.clawdeckx/memory/` | Wichtig |\n| Sitzungsverlauf | `~/.clawdeckx/sessions/` | Optional |\n| Zugangsdaten | `~/.clawdeckx/credentials/` | Wichtig |\n\n## Sicherungsmethoden\n\n### Methode 1: Manuell\n```bash\ncp -r ~/.clawdeckx ~/clawdeckx-backup-$(date +%Y%m%d)\n```\n\n### Methode 2: CLI\n```bash\nopenclaw config export > meine-sicherung.yaml\n```\n\n### Methode 3: ClawDeckX UI\n« Konfiguration exportieren » am unteren Rand des Einstellungszentrums.\n\n## Wiederherstellen\n\n1. OpenClaw installieren\n2. Dateien nach `~/.clawdeckx/` kopieren\n3. Gateway starten\n\n## Konfigurationsfelder\n\nPfad: `~/.clawdeckx/`",
+    "steps": [
+      "Sicherungsumfang bestimmen",
+      "Sicherung durchführen",
+      "Sicher aufbewahren",
+      "Zur Wiederherstellung nach ~/.clawdeckx/ kopieren"
+    ]
+  }
+}

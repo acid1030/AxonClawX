@@ -1,0 +1,55 @@
+{
+  "id": "weibo-post",
+  "name": "微博文案",
+  "description": "微博短文案模板，简洁有力",
+  "platform": "weibo",
+  "icon": "🔵",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "topic",
+      "label": "主题",
+      "type": "text",
+      "required": true,
+      "placeholder": "内容主题"
+    },
+    {
+      "name": "tone",
+      "label": "语气",
+      "type": "select",
+      "required": true,
+      "options": ["轻松幽默", "严肃正式", "感性走心", "激情打 call"]
+    },
+    {
+      "name": "keyMessage",
+      "label": "核心信息",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "最想传达的 1-2 句话"
+    },
+    {
+      "name": "hashtags",
+      "label": "话题标签",
+      "type": "tags",
+      "placeholder": "例如：#今日分享# #生活记录#"
+    },
+    {
+      "name": "mention",
+      "label": "@提及",
+      "type": "text",
+      "placeholder": "需要@的账号"
+    }
+  ],
+  "structure": {
+    "sections": [
+      "开头吸引",
+      "正文 (140 字内)",
+      "话题标签",
+      "@提及"
+    ]
+  },
+  "outputFormat": "plain",
+  "tags": ["微博", "短文案", "社交"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}

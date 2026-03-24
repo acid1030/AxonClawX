@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw · Agents</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #1e1e1e; --sidebar-bg: #252525; --titlebar-bg: #2c2c2c;
+  --surface: #2f2f2f; --surface2: #383838; --surface3: #404040;
+  --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.12);
+  --text-primary: #f0f0f0; --text-secondary: #a0a0a0; --text-tertiary: #606060;
+  --accent: #0A84FF; --accent-hover: #409CFF;
+  --green: #32D74B; --red: #FF453A; --yellow: #FFD60A; --orange: #FF9F0A;
+  --font: -apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --font-display: -apple-system,"SF Pro Display","Helvetica Neue",sans-serif;
+  --radius: 10px; --radius-lg: 14px;
+}
+html,body { height:100%; overflow:hidden; background:var(--bg); font-family:var(--font); color:var(--text-primary); font-size:13px; -webkit-font-smoothing:antialiased; }
+
+/* Titlebar */
+.titlebar { height:38px; background:var(--titlebar-bg); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 12px; user-select:none; position:relative; z-index:100; flex-shrink:0; }
+.traffic-lights { display:flex; gap:8px; margin-right:16px; }
+.tl { width:12px; height:12px; border-radius:50%; cursor:pointer; }
+.tl-close { background:#FF5F57; border:1px solid rgba(0,0,0,.15); }
+.tl-min { background:#FEBC2E; border:1px solid rgba(0,0,0,.15); }
+.tl-max { background:#28C840; border:1px solid rgba(0,0,0,.15); }
+.titlebar-title { position:absolute; left:50%; transform:translateX(-50%); font-size:13px; font-weight:500; color:var(--text-secondary); }
+.titlebar-right { margin-left:auto; display:flex; gap:6px; }
+.titlebar-btn { height:22px; padding:0 10px; border-radius:6px; background:transparent; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; font-family:var(--font); display:flex; align-items:center; gap:4px; transition:background .15s,color .15s; white-space:nowrap; }
+.titlebar-btn:hover { background:var(--surface2); color:var(--text-primary); }
+.titlebar-btn.primary { background:var(--accent); color:white; }
+.titlebar-btn.primary:hover { background:var(--accent-hover); }
+
+/* Layout */
+.app { display:flex; height:calc(100vh - 38px); }
+
+/* Sidebar nav */
+.nav { width:52px; background:var(--sidebar-bg); border-right:1px solid var(--border); display:flex; flex-direction:column; align-items:center; padding:8px 0; gap:2px; flex-shrink:0; }
+.nav-item { width:36px; height:36px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:16px; cursor:pointer; color:var(--text-tertiary); transition:background .12s,color .12s; text-decoration:none; }
+.nav-item:hover { background:var(--surface2); color:var(--text-secondary); }
+.nav-item.active { background:var(--surface3); color:var(--text-primary); }
+.nav-spacer { flex:1; }
+.nav-sep { width:24px; height:1px; background:var(--border); margin:4px 0; }
+
+/* Main content */
+.main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+
+/* Top bar */
+.topbar { height:52px; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 20px; gap:12px; flex-shrink:0; }
+.page-title { font-family:var(--font-display); font-size:16px; font-weight:500; color:var(--text-primary); }
+.topbar-spacer { flex:1; }
+.search-box { height:28px; background:var(--surface2); border:1px solid var(--border2); border-radius:8px; display:flex; align-items:center; padding:0 10px; gap:6px; width:200px; }
+.search-box input { background:none; border:none; outline:none; font-size:12px; color:var(--text-primary); width:100%; font-family:var(--font); }
+.search-box input::placeholder { color:var(--text-tertiary); }
+.search-icon { font-size:11px; color:var(--text-tertiary); flex-shrink:0; }
+.tab-bar { display:flex; gap:2px; background:var(--surface2); border-radius:8px; padding:2px; }
+.tab { height:24px; padding:0 12px; border-radius:6px; border:none; background:none; color:var(--text-secondary); font-size:12px; font-family:var(--font); cursor:pointer; transition:background .12s,color .12s; }
+.tab.active { background:var(--surface3); color:var(--text-primary); }
+.tab:hover:not(.active) { color:var(--text-primary); }
+
+/* Content */
+.content { flex:1; overflow-y:auto; padding:20px; }
+.content::-webkit-scrollbar { width:5px; }
+.content::-webkit-scrollbar-thumb { background:var(--surface3); border-radius:4px; }
+
+/* Agent cards grid */
+.agents-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
+
+.agent-card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-lg); padding:16px;
+  transition:border-color .15s, background .15s;
+  cursor:default; position:relative; overflow:hidden;
+}
+.agent-card:hover { border-color:var(--border2); background:var(--surface2); }
+.agent-card-accent { position:absolute; top:0; left:0; right:0; height:3px; border-radius:var(--radius-lg) var(--radius-lg) 0 0; }
+.agent-header { display:flex; align-items:flex-start; gap:10px; margin-bottom:12px; }
+.agent-icon { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+.agent-meta { flex:1; min-width:0; }
+.agent-name { font-size:14px; font-weight:500; color:var(--text-primary); margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.agent-id { font-size:11px; color:var(--text-tertiary); font-family:"SF Mono","Fira Code",monospace; }
+.status-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; margin-top:5px; }
+.status-dot.online { background:var(--green); box-shadow:0 0 6px rgba(50,215,75,.4); }
+.status-dot.idle { background:var(--yellow); }
+.status-dot.offline { background:var(--text-tertiary); }
+.agent-desc { font-size:12px; color:var(--text-secondary); line-height:1.5; margin-bottom:12px; }
+.agent-tags { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px; }
+.tag { font-size:10.5px; padding:2px 7px; border-radius:5px; border:1px solid var(--border2); color:var(--text-secondary); background:var(--surface3); }
+.tag.tool { color:#0A84FF; background:rgba(10,132,255,.1); border-color:rgba(10,132,255,.25); }
+.agent-stats { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:12px; }
+.a-stat { background:var(--surface3); border-radius:7px; padding:6px 8px; text-align:center; }
+.a-stat-val { font-size:14px; font-weight:500; color:var(--text-primary); }
+.a-stat-lbl { font-size:10px; color:var(--text-tertiary); margin-top:1px; }
+.agent-footer { display:flex; gap:6px; }
+.agent-btn { flex:1; height:26px; border-radius:7px; border:1px solid var(--border2); background:var(--surface3); color:var(--text-secondary); font-size:12px; font-family:var(--font); cursor:pointer; transition:background .12s,color .12s,border-color .12s; }
+.agent-btn:hover { background:var(--surface2); color:var(--text-primary); }
+.agent-btn.danger:hover { background:rgba(255,69,58,.12); border-color:rgba(255,69,58,.3); color:var(--red); }
+.agent-btn.primary { background:rgba(10,132,255,.15); border-color:rgba(10,132,255,.35); color:var(--accent); }
+.agent-btn.primary:hover { background:rgba(10,132,255,.25); }
+
+/* Add card */
+.add-card {
+  background:transparent; border:1.5px dashed var(--border2);
+  border-radius:var(--radius-lg); padding:16px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:8px; cursor:pointer; min-height:220px;
+  transition:border-color .15s, background .15s;
+  color:var(--text-tertiary);
+}
+.add-card:hover { border-color:rgba(10,132,255,.4); background:rgba(10,132,255,.04); color:var(--accent); }
+.add-card-icon { font-size:28px; }
+.add-card-text { font-size:13px; }
+
+/* Auth warning */
+.auth-warning {
+  display:flex; align-items:center; gap:8px;
+  background:rgba(255,159,10,.08); border:1px solid rgba(255,159,10,.25);
+  border-radius:9px; padding:8px 12px; margin-bottom:16px;
+  font-size:12px; color:#FF9F0A;
+}
+.auth-warning-icon { font-size:14px; flex-shrink:0; }
+
+/* Modal overlay */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:200; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity .2s; }
+.modal-overlay.show { opacity:1; pointer-events:all; }
+.modal { background:var(--surface); border:1px solid var(--border2); border-radius:16px; width:440px; overflow:hidden; transform:scale(.96) translateY(8px); transition:transform .2s; }
+.modal-overlay.show .modal { transform:scale(1) translateY(0); }
+.modal-header { padding:16px 20px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+.modal-title { font-size:15px; font-weight:500; color:var(--text-primary); }
+.modal-close { background:none; border:none; color:var(--text-tertiary); cursor:pointer; font-size:16px; width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; }
+.modal-close:hover { background:var(--surface2); color:var(--text-primary); }
+.modal-body { padding:16px 20px; display:flex; flex-direction:column; gap:12px; }
+.form-group { display:flex; flex-direction:column; gap:5px; }
+.form-label { font-size:12px; color:var(--text-secondary); }
+.form-input { height:32px; background:var(--surface2); border:1px solid var(--border2); border-radius:8px; padding:0 10px; color:var(--text-primary); font-size:13px; font-family:var(--font); outline:none; transition:border-color .15s; }
+.form-input:focus { border-color:var(--accent); }
+.form-input::placeholder { color:var(--text-tertiary); }
+.form-textarea { background:var(--surface2); border:1px solid var(--border2); border-radius:8px; padding:8px 10px; color:var(--text-primary); font-size:13px; font-family:var(--font); outline:none; resize:none; height:72px; line-height:1.5; transition:border-color .15s; }
+.form-textarea:focus { border-color:var(--accent); }
+.modal-footer { padding:12px 20px 16px; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end; }
+.btn { height:30px; padding:0 16px; border-radius:8px; border:1px solid var(--border2); font-size:13px; font-family:var(--font); cursor:pointer; transition:background .12s,color .12s; }
+.btn-cancel { background:var(--surface2); color:var(--text-secondary); }
+.btn-cancel:hover { background:var(--surface3); color:var(--text-primary); }
+.btn-primary { background:var(--accent); color:white; border-color:transparent; }
+.btn-primary:hover { background:var(--accent-hover); }
+
+@keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+.agent-card { animation:fadeUp .2s ease both; }
+.agent-card:nth-child(2){animation-delay:.05s}
+.agent-card:nth-child(3){animation-delay:.1s}
+.agent-card:nth-child(4){animation-delay:.15s}
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="traffic-lights">
+    <div class="tl tl-close"></div>
+    <div class="tl tl-min"></div>
+    <div class="tl tl-max"></div>
+  </div>
+  <span class="titlebar-title">OpenClaw · Agents</span>
+  <div class="titlebar-right">
+    <button class="titlebar-btn primary" onclick="showModal()">＋ 新建 Agent</button>
+  </div>
+</div>
+
+<div class="app">
+  <!-- Side nav -->
+  <div class="nav">
+    <a class="nav-item" href="openclaw.html" title="对话">💬</a>
+    <a class="nav-item active" href="agents.html" title="Agents">🤖</a>
+    <a class="nav-item" href="models.html" title="模型">🧠</a>
+    <a class="nav-item" href="logs.html" title="日志">📋</a>
+    <div class="nav-spacer"></div>
+    <div class="nav-sep"></div>
+    <a class="nav-item" href="settings.html" title="设置">⚙</a>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="page-title">Agents</span>
+      <div class="tab-bar">
+        <button class="tab active" onclick="setTab(this,'all')">全部</button>
+        <button class="tab" onclick="setTab(this,'online')">运行中</button>
+        <button class="tab" onclick="setTab(this,'idle')">空闲</button>
+        <button class="tab" onclick="setTab(this,'offline')">离线</button>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" placeholder="搜索 Agent…" oninput="filterAgents(this.value)">
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="auth-warning">
+        <span class="auth-warning-icon">⚠</span>
+        <span><strong>main</strong> agent 未配置 API key — 运行 <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px;">openclaw agents add main</code> 完成配置</span>
+      </div>
+
+      <div class="agents-grid" id="agentsGrid">
+
+        <!-- Agent: main -->
+        <div class="agent-card" data-name="main" data-status="offline">
+          <div class="agent-card-accent" style="background:linear-gradient(90deg,#FF453A,#FF9F0A)"></div>
+          <div class="agent-header">
+            <div class="agent-icon" style="background:rgba(255,69,58,.12)">🛠</div>
+            <div class="agent-meta">
+              <div class="agent-name">main</div>
+              <div class="agent-id">id: main</div>
+            </div>
+            <div class="status-dot offline" title="未配置"></div>
+          </div>
+          <div class="agent-desc">默认主 Agent，负责处理所有通用对话和任务分发。需要先配置 Anthropic API key 才能运行。</div>
+          <div class="agent-tags">
+            <span class="tag">通用</span>
+            <span class="tag tool">web_search</span>
+            <span class="tag tool">code_exec</span>
+          </div>
+          <div class="agent-stats">
+            <div class="a-stat"><div class="a-stat-val">—</div><div class="a-stat-lbl">调用次数</div></div>
+            <div class="a-stat"><div class="a-stat-val">—</div><div class="a-stat-lbl">成功率</div></div>
+            <div class="a-stat"><div class="a-stat-val">—</div><div class="a-stat-lbl">平均耗时</div></div>
+          </div>
+          <div class="agent-footer">
+            <button class="agent-btn primary" onclick="configAgent('main')">配置 Key</button>
+            <button class="agent-btn" onclick="editAgent('main')">编辑</button>
+            <button class="agent-btn danger">删除</button>
+          </div>
+        </div>
+
+        <!-- Agent: researcher -->
+        <div class="agent-card" data-name="researcher" data-status="online">
+          <div class="agent-card-accent" style="background:linear-gradient(90deg,#32D74B,#30D158)"></div>
+          <div class="agent-header">
+            <div class="agent-icon" style="background:rgba(50,215,75,.12)">🔍</div>
+            <div class="agent-meta">
+              <div class="agent-name">researcher</div>
+              <div class="agent-id">id: researcher</div>
+            </div>
+            <div class="status-dot online" title="运行中"></div>
+          </div>
+          <div class="agent-desc">专注于网络搜索和资料整理，自动从多个来源聚合信息并生成结构化报告。</div>
+          <div class="agent-tags">
+            <span class="tag">搜索</span>
+            <span class="tag">报告</span>
+            <span class="tag tool">web_search</span>
+            <span class="tag tool">fetch_url</span>
+          </div>
+          <div class="agent-stats">
+            <div class="a-stat"><div class="a-stat-val">1,284</div><div class="a-stat-lbl">调用次数</div></div>
+            <div class="a-stat"><div class="a-stat-val">98.2%</div><div class="a-stat-lbl">成功率</div></div>
+            <div class="a-stat"><div class="a-stat-val">2.4s</div><div class="a-stat-lbl">平均耗时</div></div>
+          </div>
+          <div class="agent-footer">
+            <button class="agent-btn primary">启动</button>
+            <button class="agent-btn" onclick="editAgent('researcher')">编辑</button>
+            <button class="agent-btn danger">删除</button>
+          </div>
+        </div>
+
+        <!-- Agent: coder -->
+        <div class="agent-card" data-name="coder" data-status="idle">
+          <div class="agent-card-accent" style="background:linear-gradient(90deg,#0A84FF,#5E5CE6)"></div>
+          <div class="agent-header">
+            <div class="agent-icon" style="background:rgba(10,132,255,.12)">💻</div>
+            <div class="agent-meta">
+              <div class="agent-name">coder</div>
+              <div class="agent-id">id: coder</div>
+            </div>
+            <div class="status-dot idle" title="空闲"></div>
+          </div>
+          <div class="agent-desc">专业代码生成与审查 Agent，支持 20+ 编程语言，内置代码执行沙箱和单元测试。</div>
+          <div class="agent-tags">
+            <span class="tag">代码</span>
+            <span class="tag">测试</span>
+            <span class="tag tool">code_exec</span>
+            <span class="tag tool">file_write</span>
+          </div>
+          <div class="agent-stats">
+            <div class="a-stat"><div class="a-stat-val">3,560</div><div class="a-stat-lbl">调用次数</div></div>
+            <div class="a-stat"><div class="a-stat-val">96.7%</div><div class="a-stat-lbl">成功率</div></div>
+            <div class="a-stat"><div class="a-stat-val">3.8s</div><div class="a-stat-lbl">平均耗时</div></div>
+          </div>
+          <div class="agent-footer">
+            <button class="agent-btn primary">启动</button>
+            <button class="agent-btn" onclick="editAgent('coder')">编辑</button>
+            <button class="agent-btn danger">删除</button>
+          </div>
+        </div>
+
+        <!-- Agent: analyst -->
+        <div class="agent-card" data-name="analyst" data-status="idle">
+          <div class="agent-card-accent" style="background:linear-gradient(90deg,#FF9F0A,#FFD60A)"></div>
+          <div class="agent-header">
+            <div class="agent-icon" style="background:rgba(255,159,10,.12)">📊</div>
+            <div class="agent-meta">
+              <div class="agent-name">analyst</div>
+              <div class="agent-id">id: analyst</div>
+            </div>
+            <div class="status-dot idle" title="空闲"></div>
+          </div>
+          <div class="agent-desc">数据分析 Agent，可处理 CSV、JSON 数据，生成可视化图表并输出分析洞察报告。</div>
+          <div class="agent-tags">
+            <span class="tag">数据</span>
+            <span class="tag">图表</span>
+            <span class="tag tool">code_exec</span>
+            <span class="tag tool">file_read</span>
+          </div>
+          <div class="agent-stats">
+            <div class="a-stat"><div class="a-stat-val">892</div><div class="a-stat-lbl">调用次数</div></div>
+            <div class="a-stat"><div class="a-stat-val">99.1%</div><div class="a-stat-lbl">成功率</div></div>
+            <div class="a-stat"><div class="a-stat-val">5.2s</div><div class="a-stat-lbl">平均耗时</div></div>
+          </div>
+          <div class="agent-footer">
+            <button class="agent-btn primary">启动</button>
+            <button class="agent-btn" onclick="editAgent('analyst')">编辑</button>
+            <button class="agent-btn danger">删除</button>
+          </div>
+        </div>
+
+        <!-- Add new card -->
+        <div class="add-card" onclick="showModal()">
+          <div class="add-card-icon">＋</div>
+          <div class="add-card-text">新建 Agent</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Agent Modal -->
+<div class="modal-overlay" id="modal" onclick="e=>e.target===this&&hideModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title">新建 Agent</span>
+      <button class="modal-close" onclick="hideModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Agent ID</label>
+        <input class="form-input" type="text" placeholder="例如：my-agent" id="agentId">
+      </div>
+      <div class="form-group">
+        <label class="form-label">显示名称</label>
+        <input class="form-input" type="text" placeholder="我的 Agent" id="agentName">
+      </div>
+      <div class="form-group">
+        <label class="form-label">描述</label>
+        <textarea class="form-textarea" placeholder="描述这个 Agent 的用途…" id="agentDesc"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Key（可选，稍后在设置中配置）</label>
+        <input class="form-input" type="password" placeholder="sk-ant-…" id="agentKey">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="hideModal()">取消</button>
+      <button class="btn btn-primary" onclick="createAgent()">创建</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function showModal(){document.getElementById('modal').classList.add('show')}
+function hideModal(){document.getElementById('modal').classList.remove('show')}
+function setTab(el,filter){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.agent-card[data-status]').forEach(c=>{
+    c.style.display=(filter==='all'||c.dataset.status===filter)?'':'none';
+  });
+}
+function filterAgents(q){
+  q=q.toLowerCase();
+  document.querySelectorAll('.agent-card[data-name]').forEach(c=>{
+    c.style.display=c.dataset.name.includes(q)?'':'none';
+  });
+}
+function configAgent(id){
+  document.getElementById('agentId').value=id;
+  showModal();
+}
+function editAgent(id){
+  document.getElementById('agentId').value=id;
+  showModal();
+}
+function createAgent(){
+  const id=document.getElementById('agentId').value.trim();
+  if(!id)return;
+  hideModal();
+}
+document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)hideModal();});
+</script>
+</body>
+</html>

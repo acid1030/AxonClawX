@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AxonClaw 原型 - 单页多区块</title>
+  <style>
+    :root {
+      --bg-main: #0f172a;
+      --bg-panel: #1e293b;
+      --bg-hover: #334155;
+      --border: #475569;
+      --border-light: #64748b;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --brand: #6366f1;
+      --brand-hover: #818cf8;
+      --success: #22c55e;
+      --error: #ef4444;
+      --warning: #eab308;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.6);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg-main);
+      color: var(--text-primary);
+      font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 260px 1fr 320px;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      background: #0b1224;
+      border-right: 1px solid var(--border);
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 600;
+      font-size: 18px;
+    }
+
+    .brand-dot {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--brand), #312e81);
+      box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+    }
+
+    .nav-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .nav-title {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+
+    .nav-item {
+      padding: 10px 12px;
+      border-radius: 10px;
+      color: var(--text-secondary);
+      background: transparent;
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+
+    .nav-item.active,
+    .nav-item:hover {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+    }
+
+    .main {
+      padding: 24px 28px 40px;
+      overflow: auto;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .search {
+      flex: 1;
+      max-width: 360px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      color: var(--text-secondary);
+    }
+
+    .top-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .button {
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+      color: var(--text-primary);
+      cursor: pointer;
+    }
+
+    .button.primary {
+      background: var(--brand);
+      border-color: var(--brand);
+    }
+
+    .grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .card-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .badge {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border-light);
+      color: var(--text-secondary);
+    }
+
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #162238;
+    }
+
+    .list-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .chat-shell {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 16px;
+      min-height: 360px;
+    }
+
+    .chat-messages {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .bubble {
+      max-width: 70%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      line-height: 1.5;
+    }
+
+    .bubble.user {
+      align-self: flex-end;
+      background: #2563eb;
+    }
+
+    .bubble.ai {
+      align-self: flex-start;
+      background: #1f2937;
+      border: 1px solid #374151;
+    }
+
+    .chat-input {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .input {
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      color: var(--text-secondary);
+    }
+
+    .section {
+      margin-bottom: 36px;
+    }
+
+    .section-title {
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+
+    .right-panel {
+      background: #0b1224;
+      border-left: 1px solid var(--border);
+      padding: 24px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .metric {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .metric-value {
+      font-size: 22px;
+      font-weight: 600;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 10px 0;
+    }
+
+    .tag {
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: #1f2a44;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .config-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .config-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .config-input {
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      color: var(--text-secondary);
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .table th,
+    .table td {
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+    }
+
+    .table th {
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #1f2a44;
+    }
+
+    .status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+
+    .status.warning .dot {
+      background: var(--warning);
+    }
+
+    .status.error .dot {
+      background: var(--error);
+    }
+
+    @media (max-width: 1200px) {
+      .app-shell {
+        grid-template-columns: 220px 1fr;
+      }
+      .right-panel {
+        display: none;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .grid.two,
+      .grid.three {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-dot"></div>
+        AxonClaw
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-title">主导航</div>
+        <div class="nav-item active">聊天中心</div>
+        <div class="nav-item">配置中心</div>
+        <div class="nav-item">节点配置</div>
+        <div class="nav-item">子代理</div>
+        <div class="nav-item">系统配置</div>
+        <div class="nav-item">对话管理</div>
+        <div class="nav-item">日志</div>
+        <div class="nav-item">模板中心</div>
+        <div class="nav-item">插件平台</div>
+      </div>
+
+      <div class="nav-section">
+        <div class="nav-title">快捷入口</div>
+        <div class="nav-item">Agent 角色库</div>
+        <div class="nav-item">Channel 管理</div>
+        <div class="nav-item">诊断工具</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <input class="search" placeholder="搜索会话、模板、日志..." />
+        <div class="top-actions">
+          <button class="button">新建会话</button>
+          <button class="button primary">运行任务</button>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="section-title">聊天中心</div>
+        <div class="card">
+          <div class="chat-shell">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Main Agent · Claudex-Opus</div>
+                <div class="card-subtitle">当前会话：agent:main:main</div>
+              </div>
+              <span class="badge">流式响应</span>
+            </div>
+            <div class="chat-messages">
+              <div class="bubble ai">欢迎回来，我已加载 12 条历史消息。今天要开始什么任务？</div>
+              <div class="bubble user">帮我创建一个电商新品上线的工作流模板。</div>
+              <div class="bubble ai">我将调用内容工厂和模板中心，生成完整流程并同步到模板中心。</div>
+            </div>
+            <div class="chat-input">
+              <input class="input" placeholder="输入消息或指令..." />
+              <button class="button primary">发送</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">配置中心</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Provider 配置</div>
+                <div class="card-subtitle">Claude / GPT / 豆包等模型接入</div>
+              </div>
+              <span class="badge">已连接 5</span>
+            </div>
+            <div class="config-row">
+              <div class="config-field">
+                API Key
+                <input class="config-input" placeholder="sk-xxxxxx" />
+              </div>
+              <div class="config-field">
+                默认模型
+                <input class="config-input" placeholder="claude-opus-4-6" />
+              </div>
+            </div>
+            <div class="config-row">
+              <div class="config-field">
+                Token 上限
+                <input class="config-input" placeholder="100k" />
+              </div>
+              <div class="config-field">
+                代理模式
+                <input class="config-input" placeholder="自动路由" />
+              </div>
+            </div>
+            <button class="button primary">保存配置</button>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">工作区与安全</div>
+                <div class="card-subtitle">Token / RBAC / 沙盒限制</div>
+              </div>
+            </div>
+            <div class="list">
+              <div class="list-item">
+                <div>
+                  <div>Token 轮换</div>
+                  <div class="list-meta">每 7 天自动轮换</div>
+                </div>
+                <span class="badge">启用</span>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>沙盒资源限制</div>
+                  <div class="list-meta">CPU 50% / 内存 2GB</div>
+                </div>
+                <span class="badge">运行中</span>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>企业 RBAC</div>
+                  <div class="list-meta">Admin / Editor / Viewer</div>
+                </div>
+                <span class="badge">配置中</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">节点配置</div>
+        <div class="card">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>节点</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>角色</th>
+                <th>延迟</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>gateway-main</td>
+                <td>Gateway</td>
+                <td><span class="status"><span class="dot"></span>健康</span></td>
+                <td>调度核心</td>
+                <td>32ms</td>
+              </tr>
+              <tr>
+                <td>agent-coder</td>
+                <td>Agent</td>
+                <td><span class="status warning"><span class="dot"></span>繁忙</span></td>
+                <td>代码生成</td>
+                <td>120ms</td>
+              </tr>
+              <tr>
+                <td>agent-writer</td>
+                <td>Agent</td>
+                <td><span class="status"><span class="dot"></span>健康</span></td>
+                <td>内容工厂</td>
+                <td>58ms</td>
+              </tr>
+              <tr>
+                <td>channel-wechat</td>
+                <td>Channel</td>
+                <td><span class="status error"><span class="dot"></span>断开</span></td>
+                <td>用户接入</td>
+                <td>--</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">子代理</div>
+        <div class="grid three">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">CEO Agent</div>
+                <div class="card-subtitle">战略规划 / 任务拆解</div>
+              </div>
+              <span class="badge">在线</span>
+            </div>
+            <div class="pill-list">
+              <span class="tag">任务路由</span>
+              <span class="tag">协作调度</span>
+              <span class="tag">风控</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Coder Agent</div>
+                <div class="card-subtitle">代码实现 / Debug</div>
+              </div>
+              <span class="badge">忙碌</span>
+            </div>
+            <div class="pill-list">
+              <span class="tag">TypeScript</span>
+              <span class="tag">Electron</span>
+              <span class="tag">API 构建</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Writer Agent</div>
+                <div class="card-subtitle">内容生成 / SEO</div>
+              </div>
+              <span class="badge">在线</span>
+            </div>
+            <div class="pill-list">
+              <span class="tag">内容工厂</span>
+              <span class="tag">标题优化</span>
+              <span class="tag">A/B 测试</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">系统配置</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">运行参数</div>
+                <div class="card-subtitle">进程 / 资源 / 安全</div>
+              </div>
+            </div>
+            <div class="config-row">
+              <div class="config-field">
+                Gateway 端口
+                <input class="config-input" placeholder="18789" />
+              </div>
+              <div class="config-field">
+                运行模式
+                <input class="config-input" placeholder="本地 + 云端混合" />
+              </div>
+            </div>
+            <div class="config-row">
+              <div class="config-field">
+                记忆压缩策略
+                <input class="config-input" placeholder="分层压缩" />
+              </div>
+              <div class="config-field">
+                自动备份
+                <input class="config-input" placeholder="每 24 小时" />
+              </div>
+            </div>
+            <button class="button">应用更改</button>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">系统诊断</div>
+                <div class="card-subtitle">一键检测与修复</div>
+              </div>
+              <button class="button primary">立即诊断</button>
+            </div>
+            <div class="list">
+              <div class="list-item">
+                <div>Node.js 版本</div>
+                <span class="badge">22.14.0</span>
+              </div>
+              <div class="list-item">
+                <div>Gateway 状态</div>
+                <span class="badge">运行中</span>
+              </div>
+              <div class="list-item">
+                <div>通道连接</div>
+                <span class="badge">3/5 正常</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">对话管理</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">会话列表</div>
+                <div class="card-subtitle">支持搜索 / 标签 / 归档</div>
+              </div>
+              <span class="badge">128 会话</span>
+            </div>
+            <div class="list">
+              <div class="list-item">
+                <div>
+                  <div>新品发布自动化</div>
+                  <div class="list-meta">最后活跃 5 分钟前</div>
+                </div>
+                <span class="badge">进行中</span>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>抖音内容批量生成</div>
+                  <div class="list-meta">已归档</div>
+                </div>
+                <span class="badge">归档</span>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>企业周报自动整理</div>
+                  <div class="list-meta">活跃 2 天前</div>
+                </div>
+                <span class="badge">收藏</span>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">统计概览</div>
+                <div class="card-subtitle">消息 / Token / 活跃度</div>
+              </div>
+            </div>
+            <div class="grid two">
+              <div class="metric">
+                <div class="list-meta">今日消息</div>
+                <div class="metric-value">1,284</div>
+              </div>
+              <div class="metric">
+                <div class="list-meta">Token 使用</div>
+                <div class="metric-value">3.2M</div>
+              </div>
+              <div class="metric">
+                <div class="list-meta">活跃 Agent</div>
+                <div class="metric-value">9</div>
+              </div>
+              <div class="metric">
+                <div class="list-meta">平均响应</div>
+                <div class="metric-value">680ms</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">日志</div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">实时日志流</div>
+              <div class="card-subtitle">Gateway / Agent / Channel</div>
+            </div>
+            <button class="button">导出日志</button>
+          </div>
+          <div class="list">
+            <div class="list-item">
+              <div>[INFO] Gateway 启动成功，ws://127.0.0.1:18789</div>
+              <span class="badge">10:21:12</span>
+            </div>
+            <div class="list-item">
+              <div>[WARN] Channel wechat 连接中断，准备重连</div>
+              <span class="badge">10:19:48</span>
+            </div>
+            <div class="list-item">
+              <div>[INFO] Agent writer 完成内容生成任务</div>
+              <span class="badge">10:18:02</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">模板中心</div>
+        <div class="grid three">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">新品推广模板</div>
+                <div class="card-subtitle">电商 / 上新</div>
+              </div>
+              <span class="badge">热门</span>
+            </div>
+            <p class="card-subtitle">覆盖选品、图文生成、上架发布、数据复盘。</p>
+            <button class="button primary">启用模板</button>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">小红书爆款笔记</div>
+                <div class="card-subtitle">内容工厂</div>
+              </div>
+              <span class="badge">推荐</span>
+            </div>
+            <p class="card-subtitle">自动生成标题、笔记、封面与标签。</p>
+            <button class="button">查看详情</button>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">企业周报自动化</div>
+                <div class="card-subtitle">办公协作</div>
+              </div>
+              <span class="badge">企业版</span>
+            </div>
+            <p class="card-subtitle">聚合飞书/企业微信数据，自动生成周报。</p>
+            <button class="button">安装</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">插件平台</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">插件市场</div>
+                <div class="card-subtitle">分类 / 搜索 / 评分</div>
+              </div>
+            </div>
+            <div class="list">
+              <div class="list-item">
+                <div>
+                  <div>视频脚本生成器</div>
+                  <div class="list-meta">适配 Douyin / Bilibili</div>
+                </div>
+                <button class="button">安装</button>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>CRM 同步插件</div>
+                  <div class="list-meta">HubSpot / Salesforce</div>
+                </div>
+                <button class="button">安装</button>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>质检审阅 Agent</div>
+                  <div class="list-meta">内容审核 / 合规检测</div>
+                </div>
+                <button class="button">更新</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">插件开发区</div>
+                <div class="card-subtitle">可视化编辑器 + 沙盒测试</div>
+              </div>
+              <button class="button primary">新建插件</button>
+            </div>
+            <div class="pill-list">
+              <span class="tag">拖拽式流程</span>
+              <span class="tag">TypeScript 编辑</span>
+              <span class="tag">实时预览</span>
+              <span class="tag">沙盒隔离</span>
+            </div>
+            <div class="divider"></div>
+            <div class="list">
+              <div class="list-item">
+                <div>
+                  <div>营销素材生成器</div>
+                  <div class="list-meta">最近更新 2 小时前</div>
+                </div>
+                <span class="badge">草稿</span>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>自动诊断工具</div>
+                  <div class="list-meta">已发布 v1.2.0</div>
+                </div>
+                <span class="badge">已发布</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="right-panel">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">运行概览</div>
+            <div class="card-subtitle">实时健康</div>
+          </div>
+          <span class="badge">在线</span>
+        </div>
+        <div class="metric">
+          <div class="list-meta">Gateway 连接</div>
+          <div class="metric-value">稳定</div>
+        </div>
+        <div class="metric">
+          <div class="list-meta">活跃 Channel</div>
+          <div class="metric-value">4 / 6</div>
+        </div>
+        <div class="metric">
+          <div class="list-meta">Agent 任务队列</div>
+          <div class="metric-value">18</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">今日任务</div>
+            <div class="card-subtitle">多 Agent 协作</div>
+          </div>
+        </div>
+        <div class="list">
+          <div class="list-item">
+            <div>
+              <div>新品图文生成</div>
+              <div class="list-meta">Writer Agent</div>
+            </div>
+            <span class="badge">进行中</span>
+          </div>
+          <div class="list-item">
+            <div>
+              <div>渠道健康巡检</div>
+              <div class="list-meta">Diagnostic Agent</div>
+            </div>
+            <span class="badge">排队</span>
+          </div>
+          <div class="list-item">
+            <div>
+              <div>插件发布评审</div>
+              <div class="list-meta">Reviewer Agent</div>
+            </div>
+            <span class="badge">待处理</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">快捷操作</div>
+            <div class="card-subtitle">常用指令</div>
+          </div>
+        </div>
+        <div class="pill-list">
+          <span class="tag">运行诊断</span>
+          <span class="tag">备份数据</span>
+          <span class="tag">新建模板</span>
+          <span class="tag">启动 Channel</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>

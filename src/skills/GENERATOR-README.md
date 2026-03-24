@@ -1,0 +1,292 @@
+# Generator Utils 技能
+
+代码生成器工具集，提供模板代码生成、脚手架生成和批量生成功能。
+
+## 快速开始
+
+```typescript
+import {
+  CodeGenerator,
+  ScaffoldGenerator,
+  generateFile,
+  generateScaffold,
+  batchGenerate,
+} from './skills/generator-utils-skill';
+```
+
+## 功能概览
+
+### 1. 模板代码生成
+
+支持 `{{variable}}` 语法的模板引擎，可生成任意文本文件。
+
+**核心 API:**
+- `generateFile(path, content, variables, options)` - 生成单个文件
+- `CodeGenerator.generateFile()` - 类方式生成
+- `CodeGenerator.generateFiles()` - 生成多个文件
+- `CodeGenerator.batchGenerate()` - 批量生成
+
+**使用场景:**
+- 代码模板生成
+- 配置文件生成
+- 文档自动生成
+- 批量文件创建
+
+**示例:**
+```typescript
+await generateFile(
+  'src/{{className}}.ts',
+  `export class {{className}} {}`,
+  { className: 'UserService' }
+);
+```
+
+### 2. 脚手架生成
+
+预定义多种项目模板，一键生成完整项目结构。
+
+**支持的脚手架类型:**
+- `node-app` - Node.js 应用
+- `typescript-lib` - TypeScript 库
+- `react-component` - React 组件
+- `express-api` - Express API 服务
+- `cli-tool` - 命令行工具
+- `test-suite` - 测试套件
+- `skill-module` - Skill 模块
+
+**核心 API:**
+- `generateScaffold(config)` - 生成脚手架
+- `ScaffoldGenerator.generate()` - 类方式生成
+
+**示例:**
+```typescript
+await generateScaffold({
+  name: 'my-app',
+  type: 'typescript-lib',
+  author: 'Axon',
+});
+```
+
+### 3. 批量生成
+
+使用多套变量批量生成文件，支持并行处理。
+
+**核心 API:**
+- `batchGenerate(config)` - 批量生成
+
+**示例:**
+```typescript
+await batchGenerate({
+  templates: [...],
+  variableSets: [
+    { module: 'user' },
+    { module: 'order' },
+    { module: 'product' },
+  ],
+  outputRoot: './src',
+  parallel: true,
+});
+```
+
+## 详细文档
+
+查看 [GENERATOR-EXAMPLES.md](./GENERATOR-EXAMPLES.md) 获取完整使用示例。
+
+## 模板语法
+
+### 基础语法
+
+```
+{{variableName}}
+```
+
+### 嵌套对象
+
+```
+{{user.name}}
+{{config.database.host}}
+```
+
+### 自定义分隔符
+
+```typescript
+const generator = new CodeGenerator({
+  prefix: '<%',
+  suffix: '%>',
+});
+```
+
+## 配置选项
+
+### TemplateOptions
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `outputDir` | string | `'./generated'` | 输出目录 |
+| `encoding` | string | `'utf-8'` | 文件编码 |
+| `overwrite` | boolean | `false` | 是否覆盖已存在文件 |
+| `mode` | number | `0o644` | 文件权限模式 |
+| `prefix` | string | `'{{'` | 变量前缀 |
+| `suffix` | string | `'}}'` | 变量后缀 |
+| `createDirs` | boolean | `true` | 是否自动创建目录 |
+| `beforeGenerate` | function | - | 文件生成前回调 |
+| `afterGenerate` | function | - | 文件生成后回调 |
+
+## 生成结果
+
+### GenerationResult
+
+```typescript
+interface GenerationResult {
+  filePath: string;    // 文件路径
+  success: boolean;    // 是否成功
+  error?: string;      // 错误信息
+  size?: number;       // 文件大小 (字节)
+  duration?: number;   // 生成时间 (毫秒)
+}
+```
+
+### BatchGenerateResult
+
+```typescript
+interface BatchGenerateResult {
+  total: number;       // 总文件数
+  success: number;     // 成功数量
+  failed: number;      // 失败数量
+  duration: number;    // 总耗时 (毫秒)
+  results: GenerationResult[]; // 详细结果
+}
+```
+
+## 最佳实践
+
+### 1. 检查文件是否存在
+
+```typescript
+const result = await generateFile('file.txt', 'content', {}, {
+  overwrite: false, // 不覆盖
+});
+
+if (!result.success) {
+  console.error(result.error);
+}
+```
+
+### 2. 使用回调函数
+
+```typescript
+await generateFile('file.txt', 'content', {}, {
+  beforeGenerate: (path, content) => {
+    console.log(`Generating: ${path}`);
+  },
+  afterGenerate: (path) => {
+    console.log(`Generated: ${path}`);
+  },
+});
+```
+
+### 3. 条件生成
+
+```typescript
+const templates: FileTemplate[] = [
+  {
+    path: 'test.ts',
+    content: '// Test file',
+    condition: (vars) => vars.environment === 'development',
+  },
+];
+```
+
+### 4. 控制并发
+
+```typescript
+await batchGenerate({
+  // ...
+  parallel: true,
+  concurrency: 5, // 限制并发数
+});
+```
+
+## 完整示例
+
+### 生成 React 组件
+
+```typescript
+import { generateScaffold } from './skills/generator-utils-skill';
+
+await generateScaffold({
+  name: 'user-profile',
+  description: 'User profile component',
+  author: 'Frontend Team',
+  type: 'react-component',
+});
+```
+
+### 批量生成 API 端点
+
+```typescript
+import { batchGenerate } from './skills/generator-utils-skill';
+
+await batchGenerate({
+  templates: [
+    {
+      path: 'src/routes/{{resource}}.ts',
+      content: `
+import express from 'express';
+const router = express.Router();
+
+router.get('/', (req, res) => res.json([]));
+router.post('/', (req, res) => res.status(201).json({}));
+
+export default router;
+`,
+    },
+  ],
+  variableSets: [
+    { resource: 'users' },
+    { resource: 'posts' },
+    { resource: 'comments' },
+  ],
+  outputRoot: './src',
+  parallel: true,
+});
+```
+
+### 自定义模板引擎
+
+```typescript
+import { CodeGenerator } from './skills/generator-utils-skill';
+
+const generator = new CodeGenerator({
+  outputDir: './output',
+  overwrite: true,
+});
+
+await generator.generateFile(
+  'src/{{name}}.ts',
+  `export const {{name}} = '{{value}}';`,
+  {
+    name: 'config',
+    value: 'production',
+  }
+);
+```
+
+---
+
+## 版本历史
+
+### v1.0.0 (2026-03-13)
+
+- ✅ 模板代码生成功能
+- ✅ 脚手架生成功能 (7 种类型)
+- ✅ 批量生成功能
+- ✅ 模板引擎 (支持嵌套变量)
+- ✅ 条件生成
+- ✅ 回调函数支持
+- ✅ 并发控制
+
+---
+
+Generated by Axon Code Generator
+Version: 1.0.0

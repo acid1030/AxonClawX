@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* AxonClaw 全局样式 - ClawDeckX 风格设计系统 */
+
+:root {
+  /* AxonClaw 品牌色 */
+  --axon-primary: #6366f1;
+  --axon-secondary: #8b5cf6;
+  --axon-accent: #06b6d4;
+  --axon-dark: #0f172a;
+  --axon-darker: #020617;
+  --axon-light: #f8fafc;
+  --axon-gray: #64748b;
+
+  /* 深色背景系统 - ClawDeckX 风格 */
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-card: #21262d;
+
+  /* 半透明卡片背景 */
+  --bg-card-blue: rgba(22, 45, 72, 0.6);
+  --bg-card-purple: rgba(35, 30, 55, 0.6);
+  --bg-card-green: rgba(20, 45, 45, 0.6);
+  --bg-card-amber: rgba(55, 45, 20, 0.5);
+
+  /* 边框和分隔线 */
+  --border: #30363d;
+  --border-light: #484f58;
+
+  /* 文字颜色 */
+  --text-primary: #ffffff;
+  --text-secondary: #8e8e93;
+  --text-tertiary: #636366;
+
+  /* 强调色 - ClawDeckX 蓝紫系统 */
+  --accent: #0a84ff;
+  --accent-hover: #0070e0;
+  --accent-green: #30d158;
+  --accent-red: #ff453a;
+  --accent-orange: #ff9f0a;
+  --accent-purple: #bf5af2;
+
+  /* 品牌渐变色 */
+  --brand-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
+  --gradient-blue: linear-gradient(90deg, #0A84FF, #5E5CE6);
+  --gradient-green: linear-gradient(90deg, #30D158, #32D74B);
+  --gradient-amber: linear-gradient(90deg, #FF9F0A, #FFD60A);
+  --gradient-red: linear-gradient(90deg, #FF453A, #FF9F0A);
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow: 0 4px 12px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+
+  /* 圆角 */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 12px;
+
+  /* 高亮色 */
+  --bg-elevated: #30363d;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: linear-gradient(135deg, var(--axon-darker) 0%, var(--axon-dark) 100%);
+  color: var(--axon-light);
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.7);
+}
+
+/* 玻璃态效果 */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 渐变文字 */
+.gradient-text {
+  background: linear-gradient(135deg, var(--axon-primary), var(--axon-accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 动画 */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(99, 102, 241, 0.6);
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* 工具类 */
+.text-shadow {
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px rgba(99, 102, 241, 0.2);
+}

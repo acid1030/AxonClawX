@@ -1,0 +1,63 @@
+{
+  "id": "wechat-article",
+  "name": "公众号文章",
+  "description": "微信公众号长文模板，适合深度内容",
+  "platform": "wechat",
+  "icon": "💬",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "title",
+      "label": "标题",
+      "type": "text",
+      "required": true,
+      "placeholder": "吸引人的文章标题"
+    },
+    {
+      "name": "subtitle",
+      "label": "副标题",
+      "type": "text",
+      "placeholder": "补充说明或悬念"
+    },
+    {
+      "name": "topic",
+      "label": "主题",
+      "type": "text",
+      "required": true,
+      "placeholder": "文章核心主题"
+    },
+    {
+      "name": "outline",
+      "label": "大纲",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "文章主要结构和要点"
+    },
+    {
+      "name": "keywords",
+      "label": "关键词",
+      "type": "tags",
+      "placeholder": "SEO 关键词，用逗号分隔"
+    },
+    {
+      "name": "wordCount",
+      "label": "目标字数",
+      "type": "number",
+      "placeholder": "例如：2000"
+    }
+  ],
+  "structure": {
+    "sections": [
+      "标题",
+      "引言 (痛点/悬念)",
+      "正文 (3-5 个小标题)",
+      "案例/数据支撑",
+      "总结升华",
+      "金句收尾"
+    ]
+  },
+  "outputFormat": "markdown",
+  "tags": ["深度内容", "长文", "公众号"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}

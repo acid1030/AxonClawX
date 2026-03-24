@@ -1,0 +1,52 @@
+{
+  "project": "AxonClawX i18n rollout",
+  "owner": "assistant",
+  "refreshSeconds": 10,
+  "tasks": [
+    {
+      "id": "t1",
+      "title": "Settings & shell i18n",
+      "description": "SettingsView + main shell navigation + short titles",
+      "status": "done",
+      "progress": 100,
+      "weight": 20,
+      "updatedAt": "2026-03-24T09:45:36+08:00"
+    },
+    {
+      "id": "t2",
+      "title": "Core pages batch A",
+      "description": "Dashboard / Chat / Sessions / Models / Run / System",
+      "status": "in_progress",
+      "progress": 92,
+      "weight": 25,
+      "updatedAt": "2026-03-24T12:40:57+08:00"
+    },
+    {
+      "id": "t3",
+      "title": "Ops pages batch B",
+      "description": "Cron / Nodes / Alerts / Usage / Logs",
+      "status": "todo",
+      "progress": 0,
+      "weight": 25,
+      "updatedAt": "2026-03-24T08:59:00+08:00"
+    },
+    {
+      "id": "t4",
+      "title": "Config Center i18n",
+      "description": "ConfigurationCenter sections and labels",
+      "status": "todo",
+      "progress": 0,
+      "weight": 20,
+      "updatedAt": "2026-03-24T08:59:00+08:00"
+    },
+    {
+      "id": "t5",
+      "title": "QA & consistency",
+      "description": "Build checks, key consistency, fallback cleanup",
+      "status": "todo",
+      "progress": 0,
+      "weight": 10,
+      "updatedAt": "2026-03-24T08:59:00+08:00"
+    }
+  ]
+}

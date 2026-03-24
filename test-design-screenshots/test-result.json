@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-03-15T02:28:45.743Z",
+  "layout": {
+    "type": "grid",
+    "columns": "56px 240px 1084px 20px",
+    "correct": true
+  },
+  "height": {
+    "page": 1062,
+    "viewport": 900,
+    "normal": true
+  },
+  "elements": {
+    "topBar": true,
+    "messages": true,
+    "userMessage": true,
+    "aiMessage": true,
+    "input": true,
+    "toolbar": true
+  },
+  "screenshots": [
+    "01-homepage.png",
+    "02-chat-view.png",
+    "03-chat-elements.png",
+    "04-dropdown.png",
+    "05-dashboard.png"
+  ]
+}

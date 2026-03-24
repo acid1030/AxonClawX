@@ -1,0 +1,65 @@
+{
+  "id": "video-script",
+  "name": "视频脚本",
+  "description": "短视频/中长视频脚本模板",
+  "platform": "video",
+  "icon": "🎬",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "videoType",
+      "label": "视频类型",
+      "type": "select",
+      "required": true,
+      "options": ["口播", "剧情", "教程", "评测", "Vlog"]
+    },
+    {
+      "name": "topic",
+      "label": "主题",
+      "type": "text",
+      "required": true,
+      "placeholder": "视频主题"
+    },
+    {
+      "name": "duration",
+      "label": "目标时长",
+      "type": "select",
+      "required": true,
+      "options": ["30 秒", "1 分钟", "3 分钟", "5 分钟", "10 分钟+"]
+    },
+    {
+      "name": "hook",
+      "label": "开头钩子",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "前 3 秒吸引观众的内容"
+    },
+    {
+      "name": "keyContent",
+      "label": "核心内容",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "视频主要信息点"
+    },
+    {
+      "name": "cta",
+      "label": "结尾行动号召",
+      "type": "text",
+      "placeholder": "例如：点赞关注不迷路～"
+    }
+  ],
+  "structure": {
+    "sections": [
+      "开场 (0-3s)",
+      "引入 (3-15s)",
+      "主体内容",
+      "高潮/转折",
+      "结尾 CTA"
+    ],
+    "example": "[0-3s] 画面：... 台词：...\n[3-15s] 画面：... 台词：..."
+  },
+  "outputFormat": "script",
+  "tags": ["视频", "脚本", "短视频"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}

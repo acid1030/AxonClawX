@@ -1,0 +1,56 @@
+{
+  "id": "zhihu-answer",
+  "name": "知乎回答",
+  "description": "知乎问题回答模板，专业且有说服力",
+  "platform": "zhihu",
+  "icon": "📚",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "question",
+      "label": "问题",
+      "type": "text",
+      "required": true,
+      "placeholder": "要回答的问题"
+    },
+    {
+      "name": "expertise",
+      "label": "专业背景",
+      "type": "text",
+      "placeholder": "例如：5 年产品经理经验"
+    },
+    {
+      "name": "viewpoint",
+      "label": "核心观点",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "你的核心论点"
+    },
+    {
+      "name": "evidence",
+      "label": "论据/案例",
+      "type": "textarea",
+      "placeholder": "支撑观点的案例、数据、经历"
+    },
+    {
+      "name": "tone",
+      "label": "语气",
+      "type": "select",
+      "required": true,
+      "options": ["专业严谨", "通俗易懂", "幽默风趣", "犀利吐槽"]
+    }
+  ],
+  "structure": {
+    "sections": [
+      "开头亮身份",
+      "核心观点",
+      "分点论证",
+      "案例说明",
+      "总结建议"
+    ]
+  },
+  "outputFormat": "markdown",
+  "tags": ["问答", "专业知识", "知乎"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}

@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw · 设置</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1e1e1e;--sidebar-bg:#252525;--titlebar-bg:#2c2c2c;
+  --surface:#2f2f2f;--surface2:#383838;--surface3:#404040;
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.12);
+  --text-primary:#f0f0f0;--text-secondary:#a0a0a0;--text-tertiary:#606060;
+  --accent:#0A84FF;--accent-hover:#409CFF;
+  --green:#32D74B;--red:#FF453A;--yellow:#FFD60A;
+  --font:-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --font-display:-apple-system,"SF Pro Display","Helvetica Neue",sans-serif;
+  --font-mono:"SF Mono","Fira Code",monospace;
+  --radius:10px;--radius-lg:14px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:var(--text-primary);font-size:13px;-webkit-font-smoothing:antialiased}
+
+.titlebar{height:38px;background:var(--titlebar-bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;user-select:none;position:relative;z-index:100;flex-shrink:0}
+.traffic-lights{display:flex;gap:8px;margin-right:16px}
+.tl{width:12px;height:12px;border-radius:50%;cursor:pointer}
+.tl-close{background:#FF5F57;border:1px solid rgba(0,0,0,.15)}
+.tl-min{background:#FEBC2E;border:1px solid rgba(0,0,0,.15)}
+.tl-max{background:#28C840;border:1px solid rgba(0,0,0,.15)}
+.titlebar-title{position:absolute;left:50%;transform:translateX(-50%);font-size:13px;font-weight:500;color:var(--text-secondary)}
+.titlebar-right{margin-left:auto;display:flex;gap:6px}
+.titlebar-btn{height:22px;padding:0 10px;border-radius:6px;background:var(--accent);border:none;color:white;cursor:pointer;font-size:12px;font-family:var(--font);transition:background .15s}
+.titlebar-btn:hover{background:var(--accent-hover)}
+
+.app{display:flex;height:calc(100vh - 38px)}
+.nav{width:52px;background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px;flex-shrink:0}
+.nav-item{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;color:var(--text-tertiary);transition:background .12s,color .12s;text-decoration:none}
+.nav-item:hover{background:var(--surface2);color:var(--text-secondary)}
+.nav-item.active{background:var(--surface3);color:var(--text-primary)}
+.nav-spacer{flex:1}
+.nav-sep{width:24px;height:1px;background:var(--border);margin:4px 0}
+
+/* Settings layout */
+.settings-sidebar{width:200px;background:var(--sidebar-bg);border-right:1px solid var(--border);padding:12px 8px;flex-shrink:0;overflow-y:auto}
+.settings-nav-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;color:var(--text-secondary);transition:background .12s,color .12s;font-size:13px}
+.settings-nav-item:hover{background:var(--surface2);color:var(--text-primary)}
+.settings-nav-item.active{background:var(--surface3);color:var(--text-primary)}
+.settings-nav-item.active .nav-icon{opacity:1}
+.nav-icon{font-size:14px;opacity:.6;flex-shrink:0}
+.settings-nav-group{font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:500;padding:10px 10px 4px;margin-top:4px}
+
+.settings-content{flex:1;overflow-y:auto;padding:24px 28px}
+.settings-content::-webkit-scrollbar{width:5px}
+.settings-content::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:4px}
+
+.settings-page{display:none;max-width:620px}
+.settings-page.active{display:block;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+
+.page-header{margin-bottom:24px}
+.page-title{font-family:var(--font-display);font-size:20px;font-weight:500;color:var(--text-primary);margin-bottom:4px}
+.page-subtitle{font-size:13px;color:var(--text-tertiary)}
+
+/* Sections */
+.section{margin-bottom:24px}
+.section-title{font-size:13px;font-weight:500;color:var(--text-secondary);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.section-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.setting-row{display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border);gap:12px}
+.setting-row:last-child{border-bottom:none}
+.setting-row:hover{background:rgba(255,255,255,.02)}
+.setting-info{flex:1;min-width:0}
+.setting-label{font-size:13px;color:var(--text-primary);margin-bottom:2px}
+.setting-desc{font-size:11.5px;color:var(--text-tertiary);line-height:1.5}
+.setting-control{flex-shrink:0;display:flex;align-items:center;gap:8px}
+
+/* Toggle */
+.toggle{width:36px;height:20px;border-radius:10px;background:var(--surface3);cursor:pointer;position:relative;transition:background .2s;border:none;flex-shrink:0}
+.toggle.on{background:var(--accent)}
+.toggle::after{content:'';position:absolute;width:14px;height:14px;border-radius:50%;background:white;top:3px;left:3px;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.toggle.on::after{transform:translateX(16px)}
+
+/* Input */
+.setting-input{height:28px;background:var(--surface2);border:1px solid var(--border2);border-radius:7px;padding:0 10px;color:var(--text-primary);font-size:12.5px;font-family:var(--font);outline:none;min-width:180px;transition:border-color .15s}
+.setting-input:focus{border-color:var(--accent)}
+.setting-input.mono{font-family:var(--font-mono);font-size:12px;letter-spacing:.02em}
+.setting-input::placeholder{color:var(--text-tertiary)}
+
+/* Select */
+.setting-select{height:28px;background:var(--surface2);border:1px solid var(--border2);border-radius:7px;padding:0 28px 0 10px;color:var(--text-primary);font-size:12.5px;font-family:var(--font);outline:none;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23606060'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center}
+.setting-select:focus{border-color:var(--accent)}
+
+/* Range */
+.range-wrap{display:flex;align-items:center;gap:8px}
+input[type=range].setting-range{width:120px;height:4px;appearance:none;background:var(--surface3);border-radius:4px;outline:none;cursor:pointer}
+input[type=range].setting-range::-webkit-slider-thumb{appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.range-val{font-size:12px;color:var(--text-secondary);min-width:28px;text-align:right}
+
+/* Key input */
+.key-row{display:flex;gap:6px;align-items:center}
+.key-input{flex:1;height:28px;background:var(--surface2);border:1px solid var(--border2);border-radius:7px;padding:0 10px;color:var(--text-primary);font-size:12px;font-family:var(--font-mono);outline:none;transition:border-color .15s;letter-spacing:.05em}
+.key-input:focus{border-color:var(--accent)}
+.key-input::placeholder{color:var(--text-tertiary);font-family:var(--font);letter-spacing:0}
+.key-btn{height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--border2);background:var(--surface3);color:var(--text-secondary);font-size:12px;font-family:var(--font);cursor:pointer;transition:background .12s,color .12s;white-space:nowrap}
+.key-btn:hover{background:var(--surface2);color:var(--text-primary)}
+.key-status{display:flex;align-items:center;gap:5px;font-size:11.5px}
+.key-status.ok{color:var(--green)}
+.key-status.err{color:var(--red)}
+.key-status.none{color:var(--text-tertiary)}
+
+/* Button */
+.setting-btn{height:26px;padding:0 12px;border-radius:7px;border:1px solid var(--border2);background:var(--surface3);color:var(--text-secondary);font-size:12px;font-family:var(--font);cursor:pointer;transition:background .12s,color .12s}
+.setting-btn:hover{background:var(--surface2);color:var(--text-primary)}
+.setting-btn.danger{border-color:rgba(255,69,58,.25);color:var(--red);background:rgba(255,69,58,.08)}
+.setting-btn.danger:hover{background:rgba(255,69,58,.16)}
+.setting-btn.primary{border-color:rgba(10,132,255,.35);color:var(--accent);background:rgba(10,132,255,.12)}
+.setting-btn.primary:hover{background:rgba(10,132,255,.2)}
+
+/* Color scheme preview */
+.theme-options{display:flex;gap:8px}
+.theme-opt{width:56px;border-radius:8px;overflow:hidden;border:2px solid transparent;cursor:pointer;transition:border-color .15s}
+.theme-opt.active{border-color:var(--accent)}
+.theme-preview{height:36px;display:flex;gap:3px;padding:6px 6px 0}
+.theme-bar{flex:1;border-radius:3px 3px 0 0}
+.theme-label{font-size:10px;text-align:center;padding:3px;color:var(--text-tertiary);background:var(--surface3)}
+
+/* Badge */
+.badge{font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(10,132,255,.15);color:var(--accent);border:1px solid rgba(10,132,255,.25)}
+
+/* Version info */
+.version-row{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:12px}
+.version-num{color:var(--text-primary);font-family:var(--font-mono)}
+.version-label{color:var(--text-tertiary)}
+
+.danger-zone{background:rgba(255,69,58,.05);border:1px solid rgba(255,69,58,.15);border-radius:var(--radius-lg);padding:14px}
+.danger-title{font-size:13px;font-weight:500;color:var(--red);margin-bottom:8px}
+.danger-desc{font-size:12px;color:var(--text-tertiary);margin-bottom:10px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="titlebar">
+  <div class="traffic-lights">
+    <div class="tl tl-close"></div><div class="tl tl-min"></div><div class="tl tl-max"></div>
+  </div>
+  <span class="titlebar-title">OpenClaw · 设置</span>
+  <div class="titlebar-right">
+    <button class="titlebar-btn" onclick="saveSettings()">保存更改</button>
+  </div>
+</div>
+
+<div class="app">
+  <div class="nav">
+    <a class="nav-item" href="openclaw.html" title="对话">💬</a>
+    <a class="nav-item" href="agents.html" title="Agents">🤖</a>
+    <a class="nav-item" href="models.html" title="模型">🧠</a>
+    <a class="nav-item" href="logs.html" title="日志">📋</a>
+    <div class="nav-spacer"></div>
+    <div class="nav-sep"></div>
+    <a class="nav-item active" href="settings.html" title="设置">⚙</a>
+  </div>
+
+  <!-- Settings sidebar -->
+  <div class="settings-sidebar">
+    <div class="settings-nav-group">账户</div>
+    <div class="settings-nav-item active" onclick="showPage('api')">
+      <span class="nav-icon">🔑</span>API 密钥
+    </div>
+    <div class="settings-nav-item" onclick="showPage('profile')">
+      <span class="nav-icon">👤</span>个人资料
+    </div>
+    <div class="settings-nav-group">应用</div>
+    <div class="settings-nav-item" onclick="showPage('general')">
+      <span class="nav-icon">🖥</span>通用
+    </div>
+    <div class="settings-nav-item" onclick="showPage('appearance')">
+      <span class="nav-icon">🎨</span>外观
+    </div>
+    <div class="settings-nav-item" onclick="showPage('shortcuts')">
+      <span class="nav-icon">⌨</span>快捷键
+    </div>
+    <div class="settings-nav-group">AI</div>
+    <div class="settings-nav-item" onclick="showPage('model')">
+      <span class="nav-icon">🧠</span>模型默认值
+    </div>
+    <div class="settings-nav-item" onclick="showPage('tools')">
+      <span class="nav-icon">🔧</span>工具配置
+    </div>
+    <div class="settings-nav-item" onclick="showPage('memory')">
+      <span class="nav-icon">💾</span>记忆与上下文
+    </div>
+    <div class="settings-nav-group">系统</div>
+    <div class="settings-nav-item" onclick="showPage('storage')">
+      <span class="nav-icon">🗂</span>存储与日志
+    </div>
+    <div class="settings-nav-item" onclick="showPage('about')">
+      <span class="nav-icon">ℹ</span>关于
+    </div>
+  </div>
+
+  <!-- Content area -->
+  <div class="settings-content">
+
+    <!-- API Keys -->
+    <div class="settings-page active" id="page-api">
+      <div class="page-header">
+        <div class="page-title">API 密钥</div>
+        <div class="page-subtitle">管理各 AI 服务商的 API 访问凭据</div>
+      </div>
+      <div class="section">
+        <div class="section-title">🔑 Anthropic</div>
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">API Key</div>
+              <div class="setting-desc">用于访问 Claude 系列模型。在 console.anthropic.com 获取</div>
+            </div>
+            <div class="setting-control" style="flex-direction:column;align-items:flex-end;gap:6px">
+              <div class="key-row">
+                <input class="key-input" type="password" placeholder="sk-ant-…" id="anthropicKey">
+                <button class="key-btn" onclick="toggleKeyVisibility('anthropicKey',this)">显示</button>
+                <button class="key-btn primary" onclick="verifyKey('anthropicKey')">验证</button>
+              </div>
+              <div class="key-status err" id="anthropicKeyStatus">
+                <span>✗</span> 未配置 — Agent 无法运行
+              </div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">默认模型</div>
+              <div class="setting-desc">新建对话时使用的默认模型</div>
+            </div>
+            <div class="setting-control">
+              <select class="setting-select">
+                <option>claude-sonnet-4</option>
+                <option>claude-opus-4</option>
+                <option>claude-haiku-4-5</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">Base URL</div>
+              <div class="setting-desc">自定义 API 端点（留空使用默认）</div>
+            </div>
+            <div class="setting-control">
+              <input class="setting-input" type="text" placeholder="https://api.anthropic.com" style="min-width:220px">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">🔗 OpenAI <span class="badge">可选</span></div>
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info">
+              <div class="setting-label">API Key</div>
+              <div class="setting-desc">用于在 Agent 中使用 GPT 模型</div>
+            </div>
+            <div class="setting-control">
+              <div class="key-row">
+                <input class="key-input" type="password" placeholder="sk-…" id="openaiKey">
+                <button class="key-btn" onclick="toggleKeyVisibility('openaiKey',this)">显示</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Profile -->
+    <div class="settings-page" id="page-profile">
+      <div class="page-header">
+        <div class="page-title">个人资料</div>
+        <div class="page-subtitle">设置你在 OpenClaw 中的显示信息</div>
+      </div>
+      <div class="section">
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">用户名</div><div class="setting-desc">显示在对话界面的名称</div></div>
+            <div class="setting-control"><input class="setting-input" type="text" value="用户 T" style="min-width:160px"></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">语言</div></div>
+            <div class="setting-control">
+              <select class="setting-select">
+                <option>简体中文</option><option>English</option><option>日本語</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- General -->
+    <div class="settings-page" id="page-general">
+      <div class="page-header">
+        <div class="page-title">通用设置</div>
+        <div class="page-subtitle">应用行为与启动偏好</div>
+      </div>
+      <div class="section">
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">启动时打开上次对话</div><div class="setting-desc">启动 OpenClaw 时自动恢复上次的对话</div></div>
+            <div class="setting-control"><button class="toggle on" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">自动保存对话历史</div><div class="setting-desc">所有对话自动持久化到本地</div></div>
+            <div class="setting-control"><button class="toggle on" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">对话自动命名</div><div class="setting-desc">根据内容自动生成对话标题</div></div>
+            <div class="setting-control"><button class="toggle on" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">发送快捷键</div></div>
+            <div class="setting-control">
+              <select class="setting-select">
+                <option>Enter 发送</option><option>Cmd+Enter 发送</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">通知</div><div class="setting-desc">Agent 任务完成时发送系统通知</div></div>
+            <div class="setting-control"><button class="toggle" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Appearance -->
+    <div class="settings-page" id="page-appearance">
+      <div class="page-header">
+        <div class="page-title">外观</div>
+        <div class="page-subtitle">主题、字体与界面风格</div>
+      </div>
+      <div class="section">
+        <div class="section-title">配色方案</div>
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">主题</div></div>
+            <div class="setting-control">
+              <div class="theme-options">
+                <div class="theme-opt" onclick="setTheme(this,'dark')" title="深色">
+                  <div class="theme-preview" style="background:#1e1e1e"><div class="theme-bar" style="background:#2f2f2f"></div><div class="theme-bar" style="background:#383838"></div></div>
+                  <div class="theme-label">深色</div>
+                </div>
+                <div class="theme-opt active" onclick="setTheme(this,'system')" title="跟随系统">
+                  <div class="theme-preview" style="background:linear-gradient(135deg,#1e1e1e 50%,#f5f5f5 50%)"><div class="theme-bar" style="background:rgba(255,255,255,.15)"></div></div>
+                  <div class="theme-label">自动</div>
+                </div>
+                <div class="theme-opt" onclick="setTheme(this,'light')" title="浅色">
+                  <div class="theme-preview" style="background:#f5f5f5"><div class="theme-bar" style="background:#e0e0e0"></div><div class="theme-bar" style="background:#ebebeb"></div></div>
+                  <div class="theme-label">浅色</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">强调色</div></div>
+            <div class="setting-control">
+              <div style="display:flex;gap:6px">
+                <div style="width:20px;height:20px;border-radius:50%;background:#0A84FF;cursor:pointer;border:2px solid var(--accent)"></div>
+                <div style="width:20px;height:20px;border-radius:50%;background:#32D74B;cursor:pointer;border:2px solid transparent" onclick="this.style.borderColor='var(--green)'"></div>
+                <div style="width:20px;height:20px;border-radius:50%;background:#BF5AF2;cursor:pointer;border:2px solid transparent"></div>
+                <div style="width:20px;height:20px;border-radius:50%;background:#FF9F0A;cursor:pointer;border:2px solid transparent"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">字体</div>
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">界面字体大小</div></div>
+            <div class="setting-control">
+              <div class="range-wrap">
+                <input type="range" class="setting-range" min="11" max="16" step="1" value="13" oninput="document.getElementById('fontSizeVal').textContent=this.value+'px'">
+                <span class="range-val" id="fontSizeVal">13px</span>
+              </div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">代码字体</div></div>
+            <div class="setting-control">
+              <select class="setting-select">
+                <option>SF Mono</option><option>Fira Code</option><option>JetBrains Mono</option><option>Cascadia Code</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">聊天气泡宽度</div></div>
+            <div class="setting-control">
+              <select class="setting-select">
+                <option>标准 (75%)</option><option>宽松 (90%)</option><option>紧凑 (60%)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model defaults -->
+    <div class="settings-page" id="page-model">
+      <div class="page-header">
+        <div class="page-title">模型默认值</div>
+        <div class="page-subtitle">新建对话时使用的 AI 参数默认值</div>
+      </div>
+      <div class="section">
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">Temperature</div><div class="setting-desc">控制输出的随机性（0=确定，1=随机）</div></div>
+            <div class="setting-control">
+              <div class="range-wrap">
+                <input type="range" class="setting-range" min="0" max="1" step="0.1" value="0.7" oninput="document.getElementById('tempV').textContent=parseFloat(this.value).toFixed(1)">
+                <span class="range-val" id="tempV">0.7</span>
+              </div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">Max Tokens</div><div class="setting-desc">单次回复的最大 token 数</div></div>
+            <div class="setting-control">
+              <div class="range-wrap">
+                <input type="range" class="setting-range" min="256" max="8192" step="256" value="4096" oninput="document.getElementById('tokV').textContent=this.value">
+                <span class="range-val" id="tokV" style="min-width:40px">4096</span>
+              </div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">流式输出</div><div class="setting-desc">逐字显示回复（关闭则等待完整回复）</div></div>
+            <div class="setting-control"><button class="toggle on" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">System Prompt</div><div class="setting-desc">应用于所有对话的默认系统提示词</div></div>
+            <div class="setting-control"></div>
+          </div>
+          <div style="padding:0 14px 12px">
+            <textarea style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--text-primary);font-size:12.5px;font-family:var(--font);outline:none;resize:none;height:72px;line-height:1.6" placeholder="你是一位专业的 AI 助手，使用简洁、准确的语言回答问题。">你是一位专业的 AI 助手，使用简洁、准确的语言回答问题。</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tools -->
+    <div class="settings-page" id="page-tools">
+      <div class="page-header">
+        <div class="page-title">工具配置</div>
+        <div class="page-subtitle">控制 Agent 可访问的工具和权限</div>
+      </div>
+      <div class="section">
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">网络搜索</div><div class="setting-desc">允许 Agent 进行实时网络搜索</div></div>
+            <div class="setting-control"><button class="toggle on" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">代码执行</div><div class="setting-desc">在沙箱中运行 Python、JS 等代码</div></div>
+            <div class="setting-control"><button class="toggle on" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">文件读写</div><div class="setting-desc">访问本地文件系统（限指定目录）</div></div>
+            <div class="setting-control"><button class="toggle" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">允许的目录</div><div class="setting-desc">文件工具可访问的目录范围</div></div>
+            <div class="setting-control"><input class="setting-input" type="text" value="~/Documents, ~/Downloads" style="min-width:200px"></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">HTTP 请求</div><div class="setting-desc">允许 Agent 发送外部 HTTP 请求</div></div>
+            <div class="setting-control"><button class="toggle on" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">代码执行超时</div><div class="setting-desc">单次代码运行的最大时间</div></div>
+            <div class="setting-control">
+              <select class="setting-select">
+                <option>10 秒</option><option>30 秒</option><option>60 秒</option><option>120 秒</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Memory -->
+    <div class="settings-page" id="page-memory">
+      <div class="page-header">
+        <div class="page-title">记忆与上下文</div>
+        <div class="page-subtitle">控制对话历史的存储与使用方式</div>
+      </div>
+      <div class="section">
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">上下文窗口策略</div><div class="setting-desc">当对话超出模型上下文时的处理方式</div></div>
+            <div class="setting-control">
+              <select class="setting-select">
+                <option>自动截断最早消息</option><option>提示用户手动清理</option><option>智能摘要压缩</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">跨会话记忆</div><div class="setting-desc">在不同对话之间保留用户偏好和重要信息</div></div>
+            <div class="setting-control"><button class="toggle" onclick="this.classList.toggle('on')"></button></div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">历史记录保留时间</div></div>
+            <div class="setting-control">
+              <select class="setting-select">
+                <option>永久保留</option><option>30 天</option><option>90 天</option><option>1 年</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">清空所有历史</div><div class="setting-desc">删除本地所有对话记录（不可恢复）</div></div>
+            <div class="setting-control"><button class="setting-btn danger">清空历史</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Storage -->
+    <div class="settings-page" id="page-storage">
+      <div class="page-header">
+        <div class="page-title">存储与日志</div>
+        <div class="page-subtitle">数据存储位置与日志输出设置</div>
+      </div>
+      <div class="section">
+        <div class="section-card">
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">数据目录</div><div class="setting-desc">OpenClaw 配置和历史的存储路径</div></div>
+            <div class="setting-control">
+              <input class="setting-input mono" type="text" value="~/.openclaw" style="min-width:200px">
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">日志级别</div></div>
+            <div class="setting-control">
+              <select class="setting-select"><option>INFO</option><option>DEBUG</option><option>WARN</option><option>ERROR</option></select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">日志文件轮转</div><div class="setting-desc">日志文件超出大小后自动切分</div></div>
+            <div class="setting-control">
+              <select class="setting-select"><option>10 MB</option><option>50 MB</option><option>100 MB</option></select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info"><div class="setting-label">打开日志目录</div></div>
+            <div class="setting-control"><button class="setting-btn">在 Finder 中打开</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Shortcuts -->
+    <div class="settings-page" id="page-shortcuts">
+      <div class="page-header">
+        <div class="page-title">快捷键</div>
+        <div class="page-subtitle">自定义键盘快捷操作</div>
+      </div>
+      <div class="section">
+        <div class="section-card">
+          ${[
+            ['新建对话','⌘ N'],['打开设置','⌘ ,'],['聚焦输入框','⌘ L'],
+            ['切换侧边栏','⌘ \\'],['清空对话','⌘ ⌫'],['复制最后回复','⌘ ⇧ C'],
+            ['切换全屏','⌃ ⌘ F'],['上一个对话','⌘ ['],['下一个对话','⌘ ]'],
+          ].map(([label,key])=>`
+            <div class="setting-row">
+              <div class="setting-info"><div class="setting-label">${label}</div></div>
+              <div class="setting-control">
+                <div style="background:var(--surface3);border:1px solid var(--border2);border-radius:6px;padding:3px 10px;font-family:var(--font-mono);font-size:12px;color:var(--text-secondary)">${key}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+
+    <!-- About -->
+    <div class="settings-page" id="page-about">
+      <div class="page-header">
+        <div class="page-title">关于 OpenClaw</div>
+        <div class="page-subtitle">版本信息与更新</div>
+      </div>
+      <div class="section">
+        <div class="section-card">
+          <div style="display:flex;align-items:center;gap:14px;padding:16px 14px;border-bottom:1px solid var(--border)">
+            <div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#0A84FF,#5E5CE6);display:flex;align-items:center;justify-content:center;font-size:26px">🦾</div>
+            <div>
+              <div style="font-size:16px;font-weight:500;color:var(--text-primary)">OpenClaw</div>
+              <div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">本地 AI Agent 平台 · 基于 Anthropic Claude</div>
+            </div>
+          </div>
+          <div class="version-row"><span class="version-label">版本</span><span class="version-num">v0.9.4</span><span class="badge" style="margin-left:auto">最新版</span></div>
+          <div class="version-row" style="border-top:1px solid var(--border)"><span class="version-label">构建日期</span><span class="version-num">2026-03-10</span></div>
+          <div class="version-row" style="border-top:1px solid var(--border)"><span class="version-label">Claude API</span><span class="version-num">2024-11-01</span></div>
+          <div class="version-row" style="border-top:1px solid var(--border)"><span class="version-label">运行环境</span><span class="version-num">macOS 15.3</span></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="danger-zone">
+          <div class="danger-title">危险区域</div>
+          <div class="danger-desc">以下操作不可撤销，请谨慎操作。</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="setting-btn danger">重置所有设置</button>
+            <button class="setting-btn danger">清除所有数据</button>
+            <button class="setting-btn danger">卸载 OpenClaw</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function showPage(id){
+  document.querySelectorAll('.settings-page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.settings-nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+function toggleKeyVisibility(id,btn){
+  const el=document.getElementById(id);
+  if(el.type==='password'){el.type='text';btn.textContent='隐藏';}
+  else{el.type='password';btn.textContent='显示';}
+}
+function verifyKey(id){
+  const val=document.getElementById(id).value.trim();
+  const status=document.getElementById(id+'Status');
+  if(!val){status.className='key-status err';status.innerHTML='<span>✗</span> 请先输入 API Key';return;}
+  status.className='key-status none';status.innerHTML='正在验证…';
+  setTimeout(()=>{
+    if(val.startsWith('sk-ant-')){status.className='key-status ok';status.innerHTML='<span>✓</span> 验证成功';}
+    else{status.className='key-status err';status.innerHTML='<span>✗</span> 无效的 API Key';}
+  },1200);
+}
+function setTheme(el){
+  document.querySelectorAll('.theme-opt').forEach(o=>o.classList.remove('active'));
+  el.classList.add('active');
+}
+function saveSettings(){
+  const btn=document.querySelector('.titlebar-btn');
+  btn.textContent='已保存 ✓';btn.style.background='var(--green)';
+  setTimeout(()=>{btn.textContent='保存更改';btn.style.background='';},1800);
+}
+</script>
+</body>
+</html>

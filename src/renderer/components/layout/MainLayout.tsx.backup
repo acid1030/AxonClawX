@@ -1,0 +1,200 @@
+/**
+ * AxonClaw - Main Layout
+ * 严格按照 designUI/axonclaw-design.html 实现
+ */
+
+import React, { useState, useEffect } from 'react';
+import { useSessionsStore } from '@/stores/sessionsStore';
+import { DashboardView } from '@/views/DashboardView';
+import { ChatView } from '@/components/chat/ChatView';
+
+// 导航项
+const navItems = [
+  { id: 'dashboard', icon: '📊', title: 'Dashboard' },
+  { id: 'chat', icon: '💬', title: 'Chat' },
+  { id: 'agents', icon: '🤖', title: 'Agent' },
+  { id: 'channels', icon: '📡', title: 'Channel' },
+  { id: 'memory', icon: '🧠', title: 'Memory' },
+  { id: 'content', icon: '📝', title: 'Content Factory' },
+  { id: 'workflow', icon: '📈', title: 'Multi-Agent' },
+  { id: 'skills', icon: '⚡', title: 'Skills' },
+  { id: 'cron', icon: '⏰', title: 'Scheduled Tasks' },
+  { id: 'diagnostics', icon: '🔧', title: 'Diagnostics' },
+];
+
+const sidebarItems = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'chat', label: 'Chat Center' },
+  { id: 'agents', label: 'Agent Management' },
+  { id: 'channels', label: 'Channel Management' },
+  { id: 'memory', label: 'Memory System' },
+  { id: 'content', label: 'Content Factory' },
+  { id: 'workflow', label: 'Multi-Agent Workflow' },
+  { id: 'skills', label: 'Skills Market' },
+  { id: 'settings', label: 'Settings' },
+];
+
+const MainLayout: React.FC = () => {
+  const [activeNav, setActiveNav] = useState('dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(true);
+  const { isConnected, initialize } = useSessionsStore();
+
+  useEffect(() => {
+    initialize();
+  }, []);
+
+  const renderContent = () => {
+    switch (activeNav) {
+      case 'dashboard':
+        return <DashboardView />;
+      case 'chat':
+        return <ChatView />;
+      default:
+        return <PlaceholderView title={`${activeNav} 功能`} />;
+    }
+  };
+
+  const shellClasses = [
+    'app-shell',
+    sidebarCollapsed && 'sidebar-collapsed',
+    panelCollapsed && 'panel-collapsed',
+  ].filter(Boolean).join(' ');
+
+  return (
+    <div className={shellClasses}>
+      {/* 左侧图标导航栏 */}
+      <nav className="nav-icon-bar">
+        <div className="logo">A</div>
+        {navItems.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setActiveNav(item.id)}
+            className={`nav-icon-btn ${activeNav === item.id ? 'active' : ''}`}
+            title={item.title}
+          >
+            {item.icon}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <div className={`health-dot ${isConnected ? '' : 'error'}`} title={isConnected ? 'Gateway online' : 'Gateway offline'} />
+      </nav>
+
+      {/* 左侧：侧边栏 + 收缩按钮 */}
+      <div className="left-section">
+        <aside className="sidebar">
+          <div className="sidebar-section">
+            <div className="sidebar-title">主导航</div>
+            {sidebarItems.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => setActiveNav(item.id)}
+                className={`sidebar-item ${activeNav === item.id ? 'active' : ''}`}
+              >
+                {item.label}
+              </div>
+            ))}
+          </div>
+          <div className="sidebar-section">
+            <div className="sidebar-title">快捷入口</div>
+            <div className="sidebar-item" onClick={() => setActiveNav('diagnostics')}>Diagnostics工具</div>
+          </div>
+        </aside>
+        <button
+          className={`collapse-btn sidebar-btn ${sidebarCollapsed ? 'collapsed' : ''}`}
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+      </div>
+
+      {/* 主内容区 */}
+      <main className="main-content">
+        {renderContent()}
+      </main>
+
+      {/* 右侧：收缩按钮 + 任务面板 */}
+      <div className="right-section">
+        <button
+          className={`collapse-btn panel-btn ${panelCollapsed ? 'collapsed' : ''}`}
+          onClick={() => setPanelCollapsed(!panelCollapsed)}
+          title={panelCollapsed ? 'Expand task panel' : 'Collapse task panel'}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </button>
+        <aside className="right-panel">
+          <div className="card card-green" style={{ position: 'relative', overflow: 'hidden' }}>
+            <div className="card-accent-bar green" />
+            <div className="card-header">
+              <div>
+                <div className="card-title">运行概览</div>
+                <div className="card-subtitle">实时健康</div>
+              </div>
+              <span className="badge success">{isConnected ? 'Online' : 'Offline'}</span>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Gateway</div>
+              <div style={{ fontSize: '18px', fontWeight: 600 }}>{isConnected ? 'Stable' : 'Offline'}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>任务队列</div>
+              <div style={{ fontSize: '18px', fontWeight: 600 }}>0</div>
+            </div>
+          </div>
+
+          <div className="card card-blue" style={{ position: 'relative', overflow: 'hidden' }}>
+            <div className="card-accent-bar blue" />
+            <div className="card-header">
+              <div>
+                <div className="card-title">今日任务</div>
+                <div className="card-subtitle">多 Agent</div>
+              </div>
+            </div>
+            <div className="list-item">
+              <div>
+                <div>暂无任务</div>
+                <div className="meta">等待创建</div>
+              </div>
+              <span className="badge">空闲</span>
+            </div>
+          </div>
+
+          <div className="card card-purple" style={{ position: 'relative', overflow: 'hidden' }}>
+            <div className="card-accent-bar blue" />
+            <div className="card-header">
+              <div className="card-title">快捷操作</div>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              <span className="badge" style={{ cursor: 'pointer' }}>运行Diagnostics</span>
+              <span className="badge" style={{ cursor: 'pointer' }}>新建任务</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+};
+
+// 占位视图
+const PlaceholderView: React.FC<{ title: string }> = ({ title }) => (
+  <div style={{
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '48px 24px',
+    textAlign: 'center',
+  }}>
+    <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}>🚧</div>
+    <h2 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px' }}>{title}</h2>
+    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>功能开发中，敬请期待</p>
+  </div>
+);
+
+export default MainLayout;

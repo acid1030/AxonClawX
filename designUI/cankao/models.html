@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw · 模型</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1e1e1e;--sidebar-bg:#252525;--titlebar-bg:#2c2c2c;
+  --surface:#2f2f2f;--surface2:#383838;--surface3:#404040;
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.12);
+  --text-primary:#f0f0f0;--text-secondary:#a0a0a0;--text-tertiary:#606060;
+  --accent:#0A84FF;--accent-hover:#409CFF;
+  --green:#32D74B;--red:#FF453A;--yellow:#FFD60A;--purple:#BF5AF2;
+  --font:-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --font-display:-apple-system,"SF Pro Display","Helvetica Neue",sans-serif;
+  --font-mono:"SF Mono","Fira Code",monospace;
+  --radius:10px;--radius-lg:14px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:var(--text-primary);font-size:13px;-webkit-font-smoothing:antialiased}
+
+.titlebar{height:38px;background:var(--titlebar-bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;user-select:none;position:relative;z-index:100;flex-shrink:0}
+.traffic-lights{display:flex;gap:8px;margin-right:16px}
+.tl{width:12px;height:12px;border-radius:50%;cursor:pointer}
+.tl-close{background:#FF5F57;border:1px solid rgba(0,0,0,.15)}
+.tl-min{background:#FEBC2E;border:1px solid rgba(0,0,0,.15)}
+.tl-max{background:#28C840;border:1px solid rgba(0,0,0,.15)}
+.titlebar-title{position:absolute;left:50%;transform:translateX(-50%);font-size:13px;font-weight:500;color:var(--text-secondary)}
+.titlebar-right{margin-left:auto;display:flex;gap:6px}
+.titlebar-btn{height:22px;padding:0 10px;border-radius:6px;background:transparent;border:none;color:var(--text-secondary);cursor:pointer;font-size:12px;font-family:var(--font);display:flex;align-items:center;gap:4px;transition:background .15s,color .15s}
+.titlebar-btn:hover{background:var(--surface2);color:var(--text-primary)}
+
+.app{display:flex;height:calc(100vh - 38px)}
+.nav{width:52px;background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px;flex-shrink:0}
+.nav-item{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;color:var(--text-tertiary);transition:background .12s,color .12s;text-decoration:none}
+.nav-item:hover{background:var(--surface2);color:var(--text-secondary)}
+.nav-item.active{background:var(--surface3);color:var(--text-primary)}
+.nav-spacer{flex:1}
+.nav-sep{width:24px;height:1px;background:var(--border);margin:4px 0}
+
+.main{flex:1;display:flex;overflow:hidden}
+.list-pane{width:300px;border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.list-header{height:52px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:10px;flex-shrink:0}
+.list-title{font-size:15px;font-weight:500;color:var(--text-primary);flex:1}
+.list-body{flex:1;overflow-y:auto;padding:8px}
+.list-body::-webkit-scrollbar{width:4px}
+.list-body::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:4px}
+.search-box{height:28px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;display:flex;align-items:center;padding:0 10px;gap:6px;width:140px}
+.search-box input{background:none;border:none;outline:none;font-size:12px;color:var(--text-primary);width:100%;font-family:var(--font)}
+.search-box input::placeholder{color:var(--text-tertiary)}
+
+.model-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;cursor:pointer;transition:background .12s;position:relative}
+.model-row:hover{background:var(--surface2)}
+.model-row.active{background:var(--surface3)}
+.model-row.active::before{content:'';position:absolute;left:0;top:20%;bottom:20%;width:3px;background:var(--accent);border-radius:0 2px 2px 0}
+.model-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.model-row-info{flex:1;min-width:0}
+.model-row-name{font-size:13px;font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model-row-sub{font-size:11px;color:var(--text-tertiary);margin-top:1px}
+.model-row-badge{font-size:10px;padding:2px 6px;border-radius:4px;flex-shrink:0}
+.badge-latest{background:rgba(50,215,75,.15);color:var(--green);border:1px solid rgba(50,215,75,.25)}
+.badge-preview{background:rgba(191,90,242,.15);color:var(--purple);border:1px solid rgba(191,90,242,.25)}
+.badge-legacy{background:rgba(255,255,255,.06);color:var(--text-tertiary);border:1px solid var(--border)}
+
+.provider-label{font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;font-weight:500;padding:10px 10px 4px}
+
+/* Detail pane */
+.detail-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.detail-header{height:52px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0}
+.detail-model-name{font-size:16px;font-weight:500;color:var(--text-primary)}
+.detail-header-spacer{flex:1}
+.use-btn{height:30px;padding:0 16px;border-radius:8px;background:var(--accent);border:none;color:white;font-size:13px;font-family:var(--font);cursor:pointer;transition:background .12s}
+.use-btn:hover{background:var(--accent-hover)}
+.detail-body{flex:1;overflow-y:auto;padding:20px}
+.detail-body::-webkit-scrollbar{width:5px}
+.detail-body::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:4px}
+
+.detail-hero{display:flex;align-items:flex-start;gap:14px;margin-bottom:20px}
+.detail-hero-icon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0}
+.detail-hero-info{flex:1}
+.detail-hero-name{font-size:20px;font-weight:500;color:var(--text-primary);margin-bottom:4px}
+.detail-hero-id{font-size:12px;color:var(--text-tertiary);font-family:var(--font-mono);margin-bottom:6px}
+.detail-hero-tags{display:flex;gap:5px;flex-wrap:wrap}
+.tag{font-size:11px;padding:2px 8px;border-radius:5px}
+.tag-blue{background:rgba(10,132,255,.12);color:var(--accent);border:1px solid rgba(10,132,255,.25)}
+.tag-green{background:rgba(50,215,75,.12);color:var(--green);border:1px solid rgba(50,215,75,.25)}
+.tag-purple{background:rgba(191,90,242,.12);color:var(--purple);border:1px solid rgba(191,90,242,.25)}
+.tag-gray{background:var(--surface3);color:var(--text-secondary);border:1px solid var(--border2)}
+
+.section-title{font-size:12px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+.desc-text{font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:20px}
+
+.spec-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px}
+.spec-card{background:var(--surface2);border-radius:10px;padding:12px 14px;border:1px solid var(--border)}
+.spec-val{font-size:18px;font-weight:500;color:var(--text-primary);margin-bottom:2px}
+.spec-val small{font-size:12px;font-weight:400;color:var(--text-secondary)}
+.spec-lbl{font-size:11px;color:var(--text-tertiary)}
+
+.pricing-row{display:flex;align-items:center;padding:9px 12px;background:var(--surface2);border-radius:8px;margin-bottom:6px;border:1px solid var(--border)}
+.pricing-type{font-size:13px;color:var(--text-secondary);flex:1}
+.pricing-val{font-size:13px;font-weight:500;color:var(--text-primary);font-family:var(--font-mono)}
+.pricing-unit{font-size:11px;color:var(--text-tertiary);margin-left:4px}
+
+.capability-list{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px}
+.cap-chip{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:12px;color:var(--text-secondary)}
+.cap-chip.supported{border-color:rgba(50,215,75,.2);color:var(--green)}
+.cap-chip.unsupported{opacity:.4}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.detail-pane{animation:fadeUp .2s ease both}
+</style>
+</head>
+<body>
+<div class="titlebar">
+  <div class="traffic-lights">
+    <div class="tl tl-close"></div><div class="tl tl-min"></div><div class="tl tl-max"></div>
+  </div>
+  <span class="titlebar-title">OpenClaw · 模型</span>
+  <div class="titlebar-right">
+    <button class="titlebar-btn">↻ 刷新列表</button>
+  </div>
+</div>
+
+<div class="app">
+  <div class="nav">
+    <a class="nav-item" href="openclaw.html" title="对话">💬</a>
+    <a class="nav-item" href="agents.html" title="Agents">🤖</a>
+    <a class="nav-item active" href="models.html" title="模型">🧠</a>
+    <a class="nav-item" href="logs.html" title="日志">📋</a>
+    <div class="nav-spacer"></div>
+    <div class="nav-sep"></div>
+    <a class="nav-item" href="settings.html" title="设置">⚙</a>
+  </div>
+
+  <div class="main">
+    <!-- List pane -->
+    <div class="list-pane">
+      <div class="list-header">
+        <span class="list-title">模型列表</span>
+        <div class="search-box"><input type="text" placeholder="搜索…" oninput="filterModels(this.value)"></div>
+      </div>
+      <div class="list-body" id="modelList">
+        <div class="provider-label">Anthropic</div>
+        <div class="model-row active" onclick="selectModel(this,'opus4')">
+          <div class="model-icon" style="background:rgba(191,90,242,.12)">✦</div>
+          <div class="model-row-info">
+            <div class="model-row-name">Claude Opus 4</div>
+            <div class="model-row-sub">claude-opus-4</div>
+          </div>
+          <span class="model-row-badge badge-latest">Latest</span>
+        </div>
+        <div class="model-row" onclick="selectModel(this,'sonnet4')">
+          <div class="model-icon" style="background:rgba(10,132,255,.12)">◈</div>
+          <div class="model-row-info">
+            <div class="model-row-name">Claude Sonnet 4</div>
+            <div class="model-row-sub">claude-sonnet-4</div>
+          </div>
+          <span class="model-row-badge badge-latest">Latest</span>
+        </div>
+        <div class="model-row" onclick="selectModel(this,'haiku45')">
+          <div class="model-icon" style="background:rgba(50,215,75,.12)">◇</div>
+          <div class="model-row-info">
+            <div class="model-row-name">Claude Haiku 4.5</div>
+            <div class="model-row-sub">claude-haiku-4-5</div>
+          </div>
+          <span class="model-row-badge badge-latest">Latest</span>
+        </div>
+        <div class="model-row" onclick="selectModel(this,'sonnet37')">
+          <div class="model-icon" style="background:rgba(10,132,255,.08)">◈</div>
+          <div class="model-row-info">
+            <div class="model-row-name">Claude Sonnet 3.7</div>
+            <div class="model-row-sub">claude-sonnet-3-7</div>
+          </div>
+          <span class="model-row-badge badge-legacy">旧版</span>
+        </div>
+        <div class="model-row" onclick="selectModel(this,'haiku3')">
+          <div class="model-icon" style="background:rgba(50,215,75,.08)">◇</div>
+          <div class="model-row-info">
+            <div class="model-row-name">Claude Haiku 3.5</div>
+            <div class="model-row-sub">claude-haiku-3-5</div>
+          </div>
+          <span class="model-row-badge badge-legacy">旧版</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail pane -->
+    <div class="detail-pane" id="detailPane">
+      <div class="detail-header">
+        <span class="detail-model-name" id="detailName">Claude Opus 4</span>
+        <div class="detail-header-spacer"></div>
+        <button class="use-btn">设为默认模型</button>
+      </div>
+      <div class="detail-body" id="detailBody">
+        <div class="detail-hero">
+          <div class="detail-hero-icon" style="background:rgba(191,90,242,.12)">✦</div>
+          <div class="detail-hero-info">
+            <div class="detail-hero-name">Claude Opus 4</div>
+            <div class="detail-hero-id">claude-opus-4</div>
+            <div class="detail-hero-tags">
+              <span class="tag tag-purple">旗舰模型</span>
+              <span class="tag tag-blue">200K 上下文</span>
+              <span class="tag tag-green">多模态</span>
+              <span class="tag tag-gray">2025年发布</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">模型简介</div>
+        <div class="desc-text">Claude Opus 4 是 Anthropic 目前最智能的模型，在复杂推理、代码生成、长文档理解和创意写作方面表现卓越。适合需要深度分析和高精度输出的专业场景。</div>
+
+        <div class="section-title">规格参数</div>
+        <div class="spec-grid">
+          <div class="spec-card"><div class="spec-val">200K<small> tokens</small></div><div class="spec-lbl">最大上下文</div></div>
+          <div class="spec-card"><div class="spec-val">8K<small> tokens</small></div><div class="spec-lbl">最大输出</div></div>
+          <div class="spec-card"><div class="spec-val">2025<small>年</small></div><div class="spec-lbl">训练截止</div></div>
+          <div class="spec-card"><div class="spec-val">~4K<small> t/s</small></div><div class="spec-lbl">推理速度</div></div>
+          <div class="spec-card"><div class="spec-val">96.4<small>%</small></div><div class="spec-lbl">MMLU 得分</div></div>
+          <div class="spec-card"><div class="spec-val">✓</div><div class="spec-lbl">支持工具调用</div></div>
+        </div>
+
+        <div class="section-title">使用定价</div>
+        <div style="margin-bottom:20px">
+          <div class="pricing-row">
+            <span class="pricing-type">输入（Input）</span>
+            <span class="pricing-val">$15.00<span class="pricing-unit">/ 1M tokens</span></span>
+          </div>
+          <div class="pricing-row">
+            <span class="pricing-type">输出（Output）</span>
+            <span class="pricing-val">$75.00<span class="pricing-unit">/ 1M tokens</span></span>
+          </div>
+          <div class="pricing-row">
+            <span class="pricing-type">缓存写入（Cache Write）</span>
+            <span class="pricing-val">$18.75<span class="pricing-unit">/ 1M tokens</span></span>
+          </div>
+          <div class="pricing-row">
+            <span class="pricing-type">缓存读取（Cache Read）</span>
+            <span class="pricing-val">$1.50<span class="pricing-unit">/ 1M tokens</span></span>
+          </div>
+        </div>
+
+        <div class="section-title">功能支持</div>
+        <div class="capability-list">
+          <div class="cap-chip supported">✓ 视觉理解</div>
+          <div class="cap-chip supported">✓ 工具调用</div>
+          <div class="cap-chip supported">✓ 流式输出</div>
+          <div class="cap-chip supported">✓ 提示词缓存</div>
+          <div class="cap-chip supported">✓ 批量处理</div>
+          <div class="cap-chip supported">✓ 扩展思考</div>
+          <div class="cap-chip unsupported">✗ 实时语音</div>
+          <div class="cap-chip supported">✓ 文档解析</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const modelData = {
+  opus4: {
+    name:'Claude Opus 4', id:'claude-opus-4', icon:'✦', color:'rgba(191,90,242,.12)',
+    tags:['旗舰模型','200K 上下文','多模态','2025年发布'],
+    tagClasses:['tag-purple','tag-blue','tag-green','tag-gray'],
+    desc:'Claude Opus 4 是 Anthropic 目前最智能的模型，在复杂推理、代码生成、长文档理解和创意写作方面表现卓越。适合需要深度分析和高精度输出的专业场景。',
+    specs:[['200K','tokens','最大上下文'],['8K','tokens','最大输出'],['2025','年','训练截止'],['~4K','t/s','推理速度'],['96.4','%','MMLU 得分'],['✓','','支持工具调用']],
+    pricing:[['输入','$15.00','/ 1M tokens'],['输出','$75.00','/ 1M tokens'],['缓存写入','$18.75','/ 1M tokens'],['缓存读取','$1.50','/ 1M tokens']],
+    caps:['✓ 视觉理解','✓ 工具调用','✓ 流式输出','✓ 提示词缓存','✓ 批量处理','✓ 扩展思考','✗ 实时语音','✓ 文档解析']
+  },
+  sonnet4: {
+    name:'Claude Sonnet 4', id:'claude-sonnet-4', icon:'◈', color:'rgba(10,132,255,.12)',
+    tags:['均衡型','200K 上下文','多模态','2025年发布'],
+    tagClasses:['tag-blue','tag-blue','tag-green','tag-gray'],
+    desc:'Claude Sonnet 4 在智能与速度之间取得最佳平衡，适合大多数日常任务和生产环境部署。性价比极高，是推荐的默认选择。',
+    specs:[['200K','tokens','最大上下文'],['16K','tokens','最大输出'],['2025','年','训练截止'],['~8K','t/s','推理速度'],['94.1','%','MMLU 得分'],['✓','','支持工具调用']],
+    pricing:[['输入','$3.00','/ 1M tokens'],['输出','$15.00','/ 1M tokens'],['缓存写入','$3.75','/ 1M tokens'],['缓存读取','$0.30','/ 1M tokens']],
+    caps:['✓ 视觉理解','✓ 工具调用','✓ 流式输出','✓ 提示词缓存','✓ 批量处理','✓ 扩展思考','✗ 实时语音','✓ 文档解析']
+  },
+  haiku45: {
+    name:'Claude Haiku 4.5', id:'claude-haiku-4-5', icon:'◇', color:'rgba(50,215,75,.12)',
+    tags:['快速响应','200K 上下文','轻量级','2025年发布'],
+    tagClasses:['tag-green','tag-blue','tag-gray','tag-gray'],
+    desc:'Claude Haiku 4.5 是 Anthropic 速度最快、成本最低的模型，专为高吞吐量、低延迟场景设计，适合实时对话和大规模自动化任务。',
+    specs:[['200K','tokens','最大上下文'],['8K','tokens','最大输出'],['2025','年','训练截止'],['~20K','t/s','推理速度'],['88.9','%','MMLU 得分'],['✓','','支持工具调用']],
+    pricing:[['输入','$0.80','/ 1M tokens'],['输出','$4.00','/ 1M tokens'],['缓存写入','$1.00','/ 1M tokens'],['缓存读取','$0.08','/ 1M tokens']],
+    caps:['✓ 视觉理解','✓ 工具调用','✓ 流式输出','✓ 提示词缓存','✓ 批量处理','✗ 扩展思考','✗ 实时语音','✓ 文档解析']
+  }
+};
+
+function selectModel(el, key) {
+  document.querySelectorAll('.model-row').forEach(r=>r.classList.remove('active'));
+  el.classList.add('active');
+  const d = modelData[key];
+  if(!d) return;
+  document.getElementById('detailName').textContent = d.name;
+  const body = document.getElementById('detailBody');
+  body.innerHTML = `
+    <div class="detail-hero">
+      <div class="detail-hero-icon" style="background:${d.color}">${d.icon}</div>
+      <div class="detail-hero-info">
+        <div class="detail-hero-name">${d.name}</div>
+        <div class="detail-hero-id">${d.id}</div>
+        <div class="detail-hero-tags">${d.tags.map((t,i)=>`<span class="tag ${d.tagClasses[i]}">${t}</span>`).join('')}</div>
+      </div>
+    </div>
+    <div class="section-title">模型简介</div>
+    <div class="desc-text">${d.desc}</div>
+    <div class="section-title">规格参数</div>
+    <div class="spec-grid">${d.specs.map(s=>`<div class="spec-card"><div class="spec-val">${s[0]}<small> ${s[1]}</small></div><div class="spec-lbl">${s[2]}</div></div>`).join('')}</div>
+    <div class="section-title">使用定价</div>
+    <div style="margin-bottom:20px">${d.pricing.map(p=>`<div class="pricing-row"><span class="pricing-type">${p[0]}</span><span class="pricing-val">${p[1]}<span class="pricing-unit">${p[2]}</span></span></div>`).join('')}</div>
+    <div class="section-title">功能支持</div>
+    <div class="capability-list">${d.caps.map(c=>`<div class="cap-chip ${c.startsWith('✓')?'supported':'unsupported'}">${c}</div>`).join('')}</div>
+  `;
+}
+
+function filterModels(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('.model-row').forEach(r=>{
+    const name = r.querySelector('.model-row-name').textContent.toLowerCase();
+    const id = r.querySelector('.model-row-sub').textContent.toLowerCase();
+    r.style.display = (name.includes(q)||id.includes(q)) ? '' : 'none';
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "Respaldo y restauración",
+  "description": "Respaldar la configuración, memoria e historial de conversaciones de OpenClaw, con soporte para migración a nuevos dispositivos",
+  "content": {
+    "body": "## Qué respaldar\n\n| Elemento | Ruta | Importancia |\n|----------|------|-------------|\n| Archivo de configuración | `~/.clawdeckx/config.yaml` | Esencial |\n| Configuración de agentes | `~/.clawdeckx/agents/` | Esencial |\n| Archivos de memoria | `~/.clawdeckx/memory/` | Importante |\n| Historial de sesiones | `~/.clawdeckx/sessions/` | Opcional |\n| Credenciales | `~/.clawdeckx/credentials/` | Importante |\n\n## Métodos de respaldo\n\n### Método 1: Respaldo manual\n```bash\ncp -r ~/.clawdeckx ~/clawdeckx-backup-$(date +%Y%m%d)\n```\n\n### Método 2: Usando CLI\n```bash\nopenclaw config export > mi-respaldo.yaml\n```\n\n### Método 3: ClawDeckX UI\nHaga clic en «Exportar configuración» en la parte inferior del «Centro de configuración».\n\n## Restaurar\n\n1. Instalar OpenClaw: `npm install -g openclaw@latest`\n2. Copiar archivos de respaldo a `~/.clawdeckx/`\n3. Iniciar gateway: `openclaw gateway run`\n\n## Campos de configuración\n\nRuta relacionada: `~/.clawdeckx/`",
+    "steps": [
+      "Confirmar alcance del respaldo (configuración, memoria, historial)",
+      "Ejecutar respaldo con cp, CLI o UI",
+      "Guardar archivos de respaldo en lugar seguro",
+      "Para restaurar, copiar archivos a ~/.clawdeckx/ y reiniciar gateway"
+    ]
+  }
+}

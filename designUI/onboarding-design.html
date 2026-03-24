@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AxonClaw Onboarding 设计稿</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #000000;
+      --bg-card: #2c2c2e;
+      --border: #3a3a3c;
+      --text-primary: #ffffff;
+      --text-secondary: #8e8e93;
+      --accent: #0a84ff;
+      --accent-hover: #0070e0;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 40px; }
+    .container { max-width: 560px; width: 100%; }
+    .progress { margin-bottom: 32px; }
+    .progress-text { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+    .progress-bar { height: 4px; background: var(--bg-card); border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s; }
+    .step { display: none; text-align: center; }
+    .step.active { display: block; }
+    .step-icon { width: 80px; height: 80px; border-radius: 20px; background: linear-gradient(135deg, #6366f1, #8b5cf6); display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 700; margin: 0 auto 24px; }
+    .step h1 { font-size: 24px; margin-bottom: 8px; }
+    .step p { color: var(--text-secondary); margin-bottom: 24px; }
+    .form-group { text-align: left; margin-bottom: 20px; }
+    .form-group label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+    .form-group input, .form-group select { width: 100%; padding: 12px 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); font-size: 14px; }
+    .form-group input:focus { outline: none; border-color: var(--accent); }
+    .model-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+    .model-option { padding: 16px; background: var(--bg-card); border: 2px solid var(--border); border-radius: var(--radius); cursor: pointer; text-align: left; transition: all 0.2s; }
+    .model-option:hover, .model-option.selected { border-color: var(--accent); background: rgba(10,132,255,0.08); }
+    .model-option .name { font-weight: 600; margin-bottom: 4px; }
+    .model-option .desc { font-size: 13px; color: var(--text-secondary); }
+    .btn-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 24px; }
+    .btn { padding: 12px 24px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); cursor: pointer; font-size: 14px; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .checklist { text-align: left; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin: 24px 0; }
+    .checklist li { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; list-style: none; }
+    .checklist li:last-child { margin-bottom: 0; }
+    .checklist .num { width: 24px; height: 24px; border-radius: 50%; background: rgba(10,132,255,0.2); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="progress">
+      <div class="progress-text"><span id="step-label">步骤 1/5</span><span id="step-name">欢迎</span></div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:20%"></div></div>
+    </div>
+
+    <!-- Step 1 -->
+    <div id="step1" class="step active">
+      <div class="step-icon">A</div>
+      <h1>欢迎使用 AxonClaw</h1>
+      <p>AI 驱动的全渠道智能运营平台</p>
+      <p style="font-size:14px">让我们花 2 分钟完成初始设置</p>
+      <div style="margin-top:32px"><button class="btn btn-primary" onclick="nextStep()">开始设置</button></div>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="step2" class="step">
+      <h1>配置 Gateway</h1>
+      <p>Gateway 是 AxonClaw 与 AI Agent 通信的桥梁</p>
+      <div class="form-group">
+        <label>Gateway 地址</label>
+        <input type="text" value="ws://127.0.0.1:18789" placeholder="ws://127.0.0.1:18789">
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="auto-start" checked>
+        <label for="auto-start" style="margin:0">自动启动 Gateway</label>
+      </div>
+      <div class="btn-row">
+        <button class="btn" onclick="prevStep()">上一步</button>
+        <button class="btn btn-primary" onclick="nextStep()">下一步</button>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div id="step3" class="step">
+      <h1>选择 AI 模型</h1>
+      <p>从已配置的 Provider 中选择默认模型</p>
+      <div class="model-grid">
+        <div class="model-option selected"><div class="name">GLM-5</div><div class="desc">智谱 AI，中文优秀</div></div>
+        <div class="model-option"><div class="name">GPT-4</div><div class="desc">OpenAI，全能</div></div>
+        <div class="model-option"><div class="name">Claude</div><div class="desc">Anthropic，长文本</div></div>
+        <div class="model-option"><div class="name">本地模型</div><div class="desc">Ollama，隐私优先</div></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" onclick="prevStep()">上一步</button>
+        <button class="btn btn-primary" onclick="nextStep()">下一步</button>
+      </div>
+    </div>
+
+    <!-- Step 4 -->
+    <div id="step4" class="step">
+      <h1>创建第一个 Agent</h1>
+      <p>给你的 AI 助手起个名字，选择角色</p>
+      <div class="form-group">
+        <label>Agent 名称</label>
+        <input type="text" placeholder="例如：Assistant">
+      </div>
+      <div class="form-group">
+        <label>角色</label>
+        <select>
+          <option>通用助手</option>
+          <option>代码开发</option>
+          <option>内容创作</option>
+          <option>数据分析</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button class="btn" onclick="prevStep()">上一步</button>
+        <button class="btn btn-primary" onclick="nextStep()">下一步</button>
+      </div>
+    </div>
+
+    <!-- Step 5 -->
+    <div id="step5" class="step">
+      <div class="step-icon" style="background:var(--accent);font-size:40px">✓</div>
+      <h1>设置完成！</h1>
+      <p>你的 AxonClaw 已经准备就绪</p>
+      <ul class="checklist">
+        <li><span class="num">1</span>与你的 Agent 开始对话</li>
+        <li><span class="num">2</span>配置 Channel 连接更多平台</li>
+        <li><span class="num">3</span>探索技能市场</li>
+      </ul>
+      <button class="btn btn-primary" onclick="finish()">开始使用</button>
+    </div>
+  </div>
+
+  <script>
+    let step = 1;
+    const labels = ['欢迎','Gateway','模型','Agent','完成'];
+    function updateUI() {
+      document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+      document.getElementById('step' + step).classList.add('active');
+      document.getElementById('step-label').textContent = '步骤 ' + step + '/5';
+      document.getElementById('step-name').textContent = labels[step-1];
+      document.getElementById('progress-fill').style.width = (step/5*100) + '%';
+    }
+    function nextStep() { if (step < 5) { step++; updateUI(); } }
+    function prevStep() { if (step > 1) { step--; updateUI(); } }
+    function finish() { window.location.href = 'axonclaw-design.html'; }
+  </script>
+</body>
+</html>

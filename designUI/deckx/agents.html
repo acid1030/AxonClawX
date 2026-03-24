@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent 管理 - AxonClaw</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark">
+  <div class="page active">
+    <div class="page-header">
+      <h1 class="page-title">🤖 Agent 管理</h1>
+      <p class="page-subtitle">创建、配置、分配任务</p>
+    </div>
+    
+    <!-- Filter Tabs -->
+    <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+      <span class="badge" style="cursor: pointer; padding: 6px 14px;">全部 (4)</span>
+      <span class="badge success" style="cursor: pointer; padding: 6px 14px;">运行中 (1)</span>
+      <span class="badge warning" style="cursor: pointer; padding: 6px 14px;">空闲 (2)</span>
+      <span class="badge" style="cursor: pointer; padding: 6px 14px;">离线 (1)</span>
+    </div>
+    
+    <!-- Warning Card -->
+    <div class="card" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(217, 119, 6, 0.05) 100%); border-color: rgba(245, 158, 11, 0.2); display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 20px;">
+      <span style="font-size: 18px;">⚠</span>
+      <div style="flex: 1;">
+        <strong>main</strong> agent 未配置 API key — 运行 <code style="background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; font-size: 12px;">openclaw agents add main</code> 完成配置
+      </div>
+      <button class="btn" style="padding: 6px 12px; font-size: 12px;">配置 Key</button>
+    </div>
+    
+    <!-- Agent Cards Grid -->
+    <div class="grid-3">
+      <!-- main agent (offline) -->
+      <div class="card" style="position: relative; overflow: hidden;">
+        <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #ef4444, #f59e0b);"></div>
+        <div class="card-header" style="margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; background: rgba(239, 68, 68, 0.12);">🛠</div>
+            <div>
+              <div class="card-title">main</div>
+              <div style="font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono);">id: main</div>
+            </div>
+          </div>
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-text-tertiary);" title="未配置"></div>
+        </div>
+        <p style="font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 12px;">默认主 Agent，负责处理所有通用对话和任务分发。需要先配置 Anthropic API key 才能运行。</p>
+        <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px;">
+          <span class="badge">通用</span>
+          <span class="badge" style="color: #3b82f6; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.25);">web_search</span>
+          <span class="badge" style="color: #3b82f6; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.25);">code_exec</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;">
+          <div style="background: var(--color-surface-sunken); border-radius: 7px; padding: 6px 8px; text-align: center;">
+            <div style="font-size: 14px; font-weight: 500;">—</div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary);">调用次数</div>
+          </div>
+          <div style="background: var(--color-surface-sunken); border-radius: 7px; padding: 6px 8px; text-align: center;">
+            <div style="font-size: 14px; font-weight: 500;">—</div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary);">成功率</div>
+          </div>
+          <div style="background: var(--color-surface-sunken); border-radius: 7px; padding: 6px 8px; text-align: center;">
+            <div style="font-size: 14px; font-weight: 500;">—</div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary);">平均耗时</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn btn-primary" style="flex: 1; font-size: 12px; padding: 6px 0;">配置 Key</button>
+          <button class="btn" style="flex: 1; font-size: 12px; padding: 6px 0;">编辑</button>
+          <button class="btn" style="flex: 1; font-size: 12px; padding: 6px 0; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">删除</button>
+        </div>
+      </div>
+      
+      <!-- researcher agent (online) -->
+      <div class="card" style="position: relative; overflow: hidden; background: linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(16, 185, 129, 0.04) 100%); border-color: rgba(34, 197, 94, 0.2);">
+        <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #22c55e, #10b981);"></div>
+        <div class="card-header" style="margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; background: rgba(34, 197, 94, 0.12);">🔍</div>
+            <div>
+              <div class="card-title">researcher</div>
+              <div style="font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono);">id: researcher</div>
+            </div>
+          </div>
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);" title="运行中"></div>
+        </div>
+        <p style="font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 12px;">专注于网络搜索和资料整理，自动从多个来源聚合信息并生成结构化报告。</p>
+        <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px;">
+          <span class="badge">搜索</span>
+          <span class="badge">报告</span>
+          <span class="badge" style="color: #3b82f6; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.25);">web_search</span>
+          <span class="badge" style="color: #3b82f6; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.25);">fetch_url</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;">
+          <div style="background: var(--color-surface-sunken); border-radius: 7px; padding: 6px 8px; text-align: center;">
+            <div style="font-size: 14px; font-weight: 500;">1,284</div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary);">调用次数</div>
+          </div>
+          <div style="background: var(--color-surface-sunken); border-radius: 7px; padding: 6px 8px; text-align: center;">
+            <div style="font-size: 14px; font-weight: 500;">98.2%</div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary);">成功率</div>
+          </div>
+          <div style="background: var(--color-surface-sunken); border-radius: 7px; padding: 6px 8px; text-align: center;">
+            <div style="font-size: 14px; font-weight: 500;">2.4s</div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary);">平均耗时</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn btn-primary" style="flex: 1; font-size: 12px; padding: 6px 0;">启动</button>
+          <button class="btn" style="flex: 1; font-size: 12px; padding: 6px 0;">编辑</button>
+          <button class="btn" style="flex: 1; font-size: 12px; padding: 6px 0; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">删除</button>
+        </div>
+      </div>
+      
+      <!-- coder agent (idle) -->
+      <div class="card" style="position: relative; overflow: hidden; background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(37, 99, 235, 0.04) 100%); border-color: rgba(59, 130, 246, 0.2);">
+        <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #3b82f6, #6366f1);"></div>
+        <div class="card-header" style="margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; background: rgba(59, 130, 246, 0.12);">💻</div>
+            <div>
+              <div class="card-title">coder</div>
+              <div style="font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono);">id: coder</div>
+            </div>
+          </div>
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: #f59e0b;" title="空闲"></div>
+        </div>
+        <p style="font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 12px;">专业代码生成与审查 Agent，支持 20+ 编程语言，内置代码执行沙箱和单元测试。</p>
+        <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px;">
+          <span class="badge">代码</span>
+          <span class="badge">测试</span>
+          <span class="badge" style="color: #3b82f6; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.25);">code_exec</span>
+          <span class="badge" style="color: #3b82f6; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.25);">file_write</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;">
+          <div style="background: var(--color-surface-sunken); border-radius: 7px; padding: 6px 8px; text-align: center;">
+            <div style="font-size: 14px; font-weight: 500;">3,560</div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary);">调用次数</div>
+          </div>
+          <div style="background: var(--color-surface-sunken); border-radius: 7px; padding: 6px 8px; text-align: center;">
+            <div style="font-size: 14px; font-weight: 500;">96.7%</div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary);">成功率</div>
+          </div>
+          <div style="background: var(--color-surface-sunken); border-radius: 7px; padding: 6px 8px; text-align: center;">
+            <div style="font-size: 14px; font-weight: 500;">3.8s</div>
+            <div style="font-size: 10px; color: var(--color-text-tertiary);">平均耗时</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn btn-primary" style="flex: 1; font-size: 12px; padding: 6px 0;">启动</button>
+          <button class="btn" style="flex: 1; font-size: 12px; padding: 6px 0;">编辑</button>
+          <button class="btn" style="flex: 1; font-size: 12px; padding: 6px 0; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">删除</button>
+        </div>
+      </div>
+      
+      <!-- New Agent Card -->
+      <div class="card" style="border: 1.5px dashed rgba(255, 255, 255, 0.15); background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 280px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='rgba(59, 130, 246, 0.4)'; this.style.background='rgba(59, 130, 246, 0.04)';" onmouseout="this.style.borderColor='rgba(255, 255, 255, 0.15)'; this.style.background='transparent';">
+        <div style="font-size: 28px; color: var(--color-text-tertiary);">＋</div>
+        <div style="font-size: 13px; color: var(--color-text-tertiary);">新建 Agent</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

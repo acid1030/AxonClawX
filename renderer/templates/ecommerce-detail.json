@@ -1,0 +1,63 @@
+{
+  "id": "ecommerce-detail",
+  "name": "电商详情页",
+  "description": "商品详情页文案模板",
+  "platform": "ecommerce",
+  "icon": "🛒",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "productName",
+      "label": "商品名称",
+      "type": "text",
+      "required": true,
+      "placeholder": "商品全称"
+    },
+    {
+      "name": "targetCustomer",
+      "label": "目标客户",
+      "type": "text",
+      "required": true,
+      "placeholder": "例如：追求品质生活的都市女性"
+    },
+    {
+      "name": "sellingPoints",
+      "label": "卖点",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "3-5 个核心卖点"
+    },
+    {
+      "name": "specifications",
+      "label": "规格参数",
+      "type": "textarea",
+      "placeholder": "尺寸、材质、颜色等"
+    },
+    {
+      "name": "useScenarios",
+      "label": "使用场景",
+      "type": "textarea",
+      "placeholder": "适合什么场景使用"
+    },
+    {
+      "name": "faq",
+      "label": "常见问题",
+      "type": "textarea",
+      "placeholder": "客户可能关心的问题"
+    }
+  ],
+  "structure": {
+    "sections": [
+      "商品主图区",
+      "卖点提炼",
+      "详细介绍",
+      "规格参数",
+      "使用场景",
+      "FAQ"
+    ]
+  },
+  "outputFormat": "html",
+  "tags": ["电商", "商品详情", "营销"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}

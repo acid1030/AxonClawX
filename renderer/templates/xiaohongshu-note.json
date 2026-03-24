@@ -1,0 +1,60 @@
+{
+  "id": "xiaohongshu-note",
+  "name": "小红书笔记",
+  "description": "适合小红书的种草笔记模板，包含标题、正文、标签",
+  "platform": "xiaohongshu",
+  "icon": "📕",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "topic",
+      "label": "主题",
+      "type": "text",
+      "required": true,
+      "placeholder": "例如：冬季护肤必备",
+      "description": "内容的核心主题"
+    },
+    {
+      "name": "targetAudience",
+      "label": "目标人群",
+      "type": "text",
+      "required": true,
+      "placeholder": "例如：25-35 岁职场女性"
+    },
+    {
+      "name": "tone",
+      "label": "语气风格",
+      "type": "select",
+      "required": true,
+      "options": ["亲切姐妹风", "专业干货风", "搞笑吐槽风", "治愈温暖风"]
+    },
+    {
+      "name": "keyPoints",
+      "label": "核心卖点",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "列出 3-5 个核心卖点或亮点"
+    },
+    {
+      "name": "callToAction",
+      "label": "互动引导",
+      "type": "text",
+      "placeholder": "例如：评论区告诉我你的想法～"
+    }
+  ],
+  "structure": {
+    "sections": [
+      "标题 (含 emoji)",
+      "开头引入",
+      "正文内容 (分点)",
+      "使用感受",
+      "互动引导",
+      "标签"
+    ],
+    "example": "标题：✨冬季护肤必备！这 5 款好物让我告别干燥肌\n\n姐妹们！今天必须分享..."
+  },
+  "outputFormat": "markdown",
+  "tags": ["种草", "好物分享", "生活记录"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}

@@ -1,0 +1,64 @@
+{
+  "id": "ai-art-prompt",
+  "name": "AI 绘画提示词",
+  "description": "Midjourney/Stable Diffusion 提示词模板",
+  "platform": "ai-art",
+  "icon": "🎨",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "subject",
+      "label": "主体",
+      "type": "text",
+      "required": true,
+      "placeholder": "例如：一位穿着汉服的女性"
+    },
+    {
+      "name": "style",
+      "label": "艺术风格",
+      "type": "select",
+      "required": true,
+      "options": ["写实", "动漫", "油画", "水彩", "赛博朋克", "奇幻", "极简"]
+    },
+    {
+      "name": "environment",
+      "label": "环境/背景",
+      "type": "text",
+      "placeholder": "例如：古代庭院，樱花树下"
+    },
+    {
+      "name": "lighting",
+      "label": "光线",
+      "type": "select",
+      "required": true,
+      "options": ["自然光", "逆光", "侧光", "柔光", "霓虹灯", "烛光"]
+    },
+    {
+      "name": "color",
+      "label": "色调",
+      "type": "text",
+      "placeholder": "例如：暖色调，粉色系"
+    },
+    {
+      "name": "quality",
+      "label": "质量参数",
+      "type": "tags",
+      "options": ["8k", "ultra-detailed", "masterpiece", "best quality"],
+      "placeholder": "选择质量标签"
+    }
+  ],
+  "structure": {
+    "sections": [
+      "主体描述",
+      "风格定义",
+      "环境设定",
+      "光线和色彩",
+      "质量参数"
+    ],
+    "example": "A woman in Hanfu, ancient courtyard, cherry blossoms, soft natural lighting, warm color palette, 8k, ultra-detailed, masterpiece --ar 16:9 --v 6"
+  },
+  "outputFormat": "plain",
+  "tags": ["AI 绘画", "Midjourney", "Stable Diffusion"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}

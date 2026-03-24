@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>技能管理 - AxonClaw</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark">
+  <div class="page active">
+    <div class="page-header">
+      <h1 class="page-title">⚡ 技能管理</h1>
+      <p class="page-subtitle">浏览和管理 AI 能力扩展</p>
+    </div>
+    
+    <!-- Search and Filters -->
+    <div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+      <div style="flex: 1; min-width: 280px; position: relative;">
+        <input class="input" placeholder="🔍 搜索技能..." style="padding-left: 32px;">
+      </div>
+      <div style="display: flex; gap: 4px;">
+        <span class="badge" style="cursor: pointer; padding: 6px 14px;">全部 (68)</span>
+        <span class="badge success" style="cursor: pointer; padding: 6px 14px;">启用 (42)</span>
+        <span class="badge" style="cursor: pointer; padding: 6px 14px;">内置 (51)</span>
+        <span class="badge" style="cursor: pointer; padding: 6px 14px;">市场 (17)</span>
+      </div>
+    </div>
+    
+    <!-- Actions -->
+    <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+      <button class="btn">批量启用</button>
+      <button class="btn">批量禁用</button>
+      <button class="btn btn-primary">从 ClawHub 安装</button>
+    </div>
+    
+    <!-- Skills List -->
+    <div style="max-height: 600px; overflow-y: auto;">
+      <!-- Skill Item 1 -->
+      <div class="list-item" style="align-items: flex-start; gap: 16px; padding: 16px 18px;">
+        <div class="list-item-icon" style="width: 40px; height: 40px; font-size: 20px; background: rgba(234, 179, 8, 0.15);">🔒</div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+            <span style="font-size: 15px; font-weight: 600;">1password</span>
+            <svg style="width: 12px; height: 12px; color: #3b82f6;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <path d="M15 3h6v6"/>
+              <path d="M10 14L21 3"/>
+            </svg>
+          </div>
+          <div style="font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 8px;">Set up and use 1Password CLI (op). Use when installing the CLI, enabling desktop app integration, signing in...</div>
+          <div style="font-size: 12px; color: var(--color-text-muted);">
+            <span style="color: var(--color-text-secondary);">内置</span> /Applications/ClawX.app/Contents/Resources/openclaw/skills/1password
+          </div>
+        </div>
+        <div class="toggle-switch on" style="width: 44px; height: 24px; border-radius: 12px; background: #3b82f6; border-color: #3b82f6; position: relative; cursor: pointer;"></div>
+      </div>
+      
+      <!-- Skill Item 2 -->
+      <div class="list-item" style="align-items: flex-start; gap: 16px; padding: 16px 18px;">
+        <div class="list-item-icon" style="width: 40px; height: 40px; font-size: 20px; background: rgba(139, 92, 46, 0.15);">📦</div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+            <span style="font-size: 15px; font-weight: 600;">agent-browser</span>
+            <svg style="width: 12px; height: 12px; color: #3b82f6;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <path d="M15 3h6v6"/>
+              <path d="M10 14L21 3"/>
+            </svg>
+          </div>
+          <div style="font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 8px;">Browser automation CLI for AI agents. Use when the user needs to interact with websites, including navigating pages, filling forms...</div>
+          <div style="font-size: 12px; color: var(--color-text-muted);">
+            <span style="color: var(--color-text-secondary);">个人.agents</span> /Users/t/.agents/skills/agent-browser · v1.0.0
+          </div>
+        </div>
+        <div class="toggle-switch on" style="width: 44px; height: 24px; border-radius: 12px; background: #3b82f6; border-color: #3b82f6; position: relative; cursor: pointer;"></div>
+      </div>
+      
+      <!-- Skill Item 3 -->
+      <div class="list-item" style="align-items: flex-start; gap: 16px; padding: 16px 18px;">
+        <div class="list-item-icon" style="width: 40px; height: 40px; font-size: 20px; background: rgba(59, 130, 246, 0.15);">📝</div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+            <span style="font-size: 15px; font-weight: 600;">apple-notes</span>
+            <svg style="width: 12px; height: 12px; color: #3b82f6;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <path d="M15 3h6v6"/>
+              <path d="M10 14L21 3"/>
+            </svg>
+          </div>
+          <div style="font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 8px;">Create and manage Apple Notes via Shortcuts or AppleScript. Use when the user wants to add notes, reminders, or lists to Apple Notes.</div>
+          <div style="font-size: 12px; color: var(--color-text-muted);">
+            <span style="color: var(--color-text-secondary);">内置</span> /Applications/ClawX.app/Contents/Resources/openclaw/skills/apple-notes · v1.0.0
+          </div>
+        </div>
+        <div class="toggle-switch on" style="width: 44px; height: 24px; border-radius: 12px; background: #3b82f6; border-color: #3b82f6; position: relative; cursor: pointer;"></div>
+      </div>
+      
+      <!-- Skill Item 4 -->
+      <div class="list-item" style="align-items: flex-start; gap: 16px; padding: 16px 18px;">
+        <div class="list-item-icon" style="width: 40px; height: 40px; font-size: 20px; background: rgba(139, 92, 246, 0.15);">🧠</div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+            <span style="font-size: 15px; font-weight: 600;">lancedb-memory</span>
+            <svg style="width: 12px; height: 12px; color: #3b82f6;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <path d="M15 3h6v6"/>
+              <path d="M10 14L21 3"/>
+            </svg>
+          </div>
+          <div style="font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 8px;">长期记忆、语义检索。LanceDB 向量存储，支持语义搜索与记忆注入。</div>
+          <div style="font-size: 12px; color: var(--color-text-muted);">
+            <span style="color: var(--color-text-secondary);">内置</span> renderer/memory/ · v1.0.0
+          </div>
+        </div>
+        <div class="toggle-switch" style="width: 44px; height: 24px; border-radius: 12px; position: relative; cursor: pointer; background: var(--color-surface-sunken); border-color: var(--color-border);"></div>
+      </div>
+      
+      <!-- Skill Item 5 -->
+      <div class="list-item" style="align-items: flex-start; gap: 16px; padding: 16px 18px;">
+        <div class="list-item-icon" style="width: 40px; height: 40px; font-size: 20px; background: rgba(239, 68, 68, 0.15);">🎨</div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+            <span style="font-size: 15px; font-weight: 600;">ai-image-generation</span>
+            <span class="badge" style="font-size: 10px; padding: 2px 6px;">HOT</span>
+          </div>
+          <div style="font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; margin-bottom: 8px;">Generate AI images with FLUX, Gemini, Grok, Seedream, Reve and 50+ models via inference.sh CLI.</div>
+          <div style="font-size: 12px; color: var(--color-text-muted);">
+            <span style="color: var(--color-text-secondary);">个人</span> /Users/t/.agents/skills/ai-image-generation · v2.1.0
+          </div>
+        </div>
+        <div class="toggle-switch on" style="width: 44px; height: 24px; border-radius: 12px; background: #3b82f6; border-color: #3b82f6; position: relative; cursor: pointer;"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

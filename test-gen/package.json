@@ -1,0 +1,33 @@
+{
+  "name": "@openclaw/test-gen",
+  "version": "1.0.0",
+  "description": "Automatic unit test generator for TypeScript/JavaScript",
+  "main": "test-generator.ts",
+  "scripts": {
+    "generate": "ts-node test-generator.ts",
+    "test": "jest",
+    "build": "tsc",
+    "example": "ts-node test-generator.ts example/user.ts"
+  },
+  "keywords": [
+    "test",
+    "generator",
+    "jest",
+    "typescript",
+    "unit-testing",
+    "openclaw",
+    "skill"
+  ],
+  "author": "OpenClaw",
+  "license": "MIT",
+  "dependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0",
+    "ts-jest": "^29.0.0"
+  }
+}

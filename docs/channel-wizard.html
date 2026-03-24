@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AxonClaw - Channel 配置向导</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; }
+    .step-active { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+  </style>
+</head>
+<body class="bg-zinc-950 text-white min-h-screen">
+  <div class="flex h-screen">
+    <!-- 侧边栏 -->
+    <aside class="w-[72px] bg-zinc-900 flex flex-col items-center py-4 border-r border-zinc-800">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-lg mb-6">A</div>
+      <nav class="flex-1 flex flex-col items-center gap-2">
+        <button class="w-10 h-10 rounded-lg bg-zinc-800 text-zinc-400 flex items-center justify-center hover:bg-zinc-700" title="仪表板">📊</button>
+        <button class="w-10 h-10 rounded-lg bg-zinc-800 text-zinc-400 flex items-center justify-center hover:bg-zinc-700" title="对话">💬</button>
+        <button class="w-10 h-10 rounded-lg bg-zinc-800 text-zinc-400 flex items-center justify-center hover:bg-zinc-700" title="Agent">🤖</button>
+        <button class="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center" title="Channel">📡</button>
+        <div class="w-6 h-px bg-zinc-700 my-2"></div>
+        <button class="w-10 h-10 rounded-lg bg-zinc-800 text-zinc-400 flex items-center justify-center hover:bg-zinc-700" title="设置">⚙️</button>
+      </nav>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="flex-1 p-8">
+      <div class="max-w-2xl mx-auto">
+        <!-- 标题 -->
+        <div class="mb-8">
+          <h1 class="text-2xl font-bold mb-2">Channel 配置向导</h1>
+          <p class="text-zinc-400">连接你的消息平台，让 AxonClaw 跨平台工作</p>
+        </div>
+
+        <!-- 步骤指示器 -->
+        <div class="flex items-center gap-4 mb-8">
+          <div class="flex items-center gap-2" id="step1-indicator">
+            <div class="w-8 h-8 rounded-full step-active flex items-center justify-center text-sm font-medium">1</div>
+            <span class="text-sm">选择平台</span>
+          </div>
+          <div class="flex-1 h-px bg-zinc-700"></div>
+          <div class="flex items-center gap-2" id="step2-indicator">
+            <div class="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-sm font-medium">2</div>
+            <span class="text-sm text-zinc-500">配置参数</span>
+          </div>
+          <div class="flex-1 h-px bg-zinc-700"></div>
+          <div class="flex items-center gap-2" id="step3-indicator">
+            <div class="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-sm font-medium">3</div>
+            <span class="text-sm text-zinc-500">验证连接</span>
+          </div>
+        </div>
+
+        <!-- Step 1: 选择平台 -->
+        <div id="step1" class="space-y-4">
+          <h2 class="text-lg font-semibold mb-4">选择要连接的平台</h2>
+          <div class="grid grid-cols-3 gap-4">
+            <button onclick="selectPlatform('telegram')" class="p-6 rounded-xl border-2 border-zinc-800 hover:border-indigo-500 bg-zinc-900 transition group">
+              <div class="text-4xl mb-3">📱</div>
+              <div class="font-medium">Telegram</div>
+              <div class="text-sm text-zinc-500 group-hover:text-indigo-400">Bot API</div>
+            </button>
+            <button onclick="selectPlatform('discord')" class="p-6 rounded-xl border-2 border-zinc-800 hover:border-indigo-500 bg-zinc-900 transition group">
+              <div class="text-4xl mb-3">💬</div>
+              <div class="font-medium">Discord</div>
+              <div class="text-sm text-zinc-500 group-hover:text-indigo-400">Bot + Guild</div>
+            </button>
+            <button onclick="selectPlatform('whatsapp')" class="p-6 rounded-xl border-2 border-zinc-800 hover:border-indigo-500 bg-zinc-900 transition group">
+              <div class="text-4xl mb-3">💚</div>
+              <div class="font-medium">WhatsApp</div>
+              <div class="text-sm text-zinc-500 group-hover:text-indigo-400">扫码绑定</div>
+            </button>
+          </div>
+          <div class="grid grid-cols-3 gap-4 mt-4">
+            <button onclick="selectPlatform('slack')" class="p-6 rounded-xl border-2 border-zinc-800 hover:border-indigo-500 bg-zinc-900 transition group opacity-50">
+              <div class="text-4xl mb-3">💼</div>
+              <div class="font-medium">Slack</div>
+              <div class="text-sm text-zinc-500">即将支持</div>
+            </button>
+            <button onclick="selectPlatform('wechat')" class="p-6 rounded-xl border-2 border-zinc-800 hover:border-indigo-500 bg-zinc-900 transition group opacity-50">
+              <div class="text-4xl mb-3">🟢</div>
+              <div class="font-medium">微信</div>
+              <div class="text-sm text-zinc-500">即将支持</div>
+            </button>
+            <button onclick="selectPlatform('feishu')" class="p-6 rounded-xl border-2 border-zinc-800 hover:border-indigo-500 bg-zinc-900 transition group opacity-50">
+              <div class="text-4xl mb-3">🪽</div>
+              <div class="font-medium">飞书</div>
+              <div class="text-sm text-zinc-500">即将支持</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: 配置参数 -->
+        <div id="step2" class="hidden space-y-6">
+          <!-- Telegram 配置 -->
+          <div id="telegram-config" class="hidden space-y-4">
+            <h2 class="text-lg font-semibold mb-4">配置 Telegram Bot</h2>
+            <div class="bg-zinc-900 rounded-xl p-4 border border-zinc-800 mb-4">
+              <h3 class="font-medium mb-2">📋 如何获取 Bot Token？</h3>
+              <ol class="text-sm text-zinc-400 space-y-2">
+                <li>1. 在 Telegram 搜索 <span class="text-indigo-400">@BotFather</span></li>
+                <li>2. 发送 <span class="text-indigo-400">/newbot</span> 创建新机器人</li>
+                <li>3. 按提示设置名称，获取 Token</li>
+              </ol>
+            </div>
+            <div>
+              <label class="block text-sm text-zinc-400 mb-2">Bot Token</label>
+              <input type="text" id="telegram-token" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg focus:outline-none focus:border-indigo-500">
+            </div>
+          </div>
+
+          <!-- Discord 配置 -->
+          <div id="discord-config" class="hidden space-y-4">
+            <h2 class="text-lg font-semibold mb-4">配置 Discord Bot</h2>
+            <div class="bg-zinc-900 rounded-xl p-4 border border-zinc-800 mb-4">
+              <h3 class="font-medium mb-2">📋 如何创建 Discord Bot？</h3>
+              <ol class="text-sm text-zinc-400 space-y-2">
+                <li>1. 访问 <span class="text-indigo-400">discord.com/developers</span></li>
+                <li>2. 创建 Application，添加 Bot</li>
+                <li>3. 复制 Token，邀请 Bot 到服务器</li>
+              </ol>
+            </div>
+            <div>
+              <label class="block text-sm text-zinc-400 mb-2">Bot Token</label>
+              <input type="text" id="discord-token" placeholder="your-bot-token"
+                class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg focus:outline-none focus:border-indigo-500">
+            </div>
+            <div>
+              <label class="block text-sm text-zinc-400 mb-2">Guild ID (服务器ID)</label>
+              <input type="text" id="discord-guild" placeholder="123456789012345678"
+                class="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg focus:outline-none focus:border-indigo-500">
+            </div>
+          </div>
+
+          <!-- WhatsApp 配置 -->
+          <div id="whatsapp-config" class="hidden">
+            <h2 class="text-lg font-semibold mb-4">绑定 WhatsApp</h2>
+            <div class="bg-zinc-900 rounded-xl p-8 border border-zinc-800 text-center">
+              <div class="w-48 h-48 bg-white rounded-xl mx-auto mb-4 flex items-center justify-center">
+                <div class="text-6xl">📷</div>
+              </div>
+              <p class="text-zinc-400 mb-4">使用 WhatsApp 扫描二维码绑定</p>
+              <button class="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium">
+                生成二维码
+              </button>
+            </div>
+          </div>
+
+          <!-- 按钮 -->
+          <div class="flex gap-4">
+            <button onclick="goToStep(1)" class="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition">上一步</button>
+            <button onclick="goToStep(3)" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-medium transition">下一步</button>
+          </div>
+        </div>
+
+        <!-- Step 3: 验证连接 -->
+        <div id="step3" class="hidden">
+          <h2 class="text-lg font-semibold mb-4">验证连接</h2>
+          <div class="bg-zinc-900 rounded-xl p-8 border border-zinc-800 text-center">
+            <div id="verifying" class="hidden">
+              <div class="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p class="text-zinc-400">正在验证连接...</p>
+            </div>
+            <div id="success" class="hidden">
+              <div class="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span class="text-3xl">✓</span>
+              </div>
+              <h3 class="text-xl font-semibold text-green-400 mb-2">连接成功！</h3>
+              <p class="text-zinc-400 mb-6">Channel 已配置完成</p>
+              <button onclick="finish()" class="px-6 py-2 bg-green-600 hover:bg-green-500 rounded-lg font-medium transition">
+                完成
+              </button>
+            </div>
+            <div id="error" class="hidden">
+              <div class="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span class="text-3xl">✗</span>
+              </div>
+              <h3 class="text-xl font-semibold text-red-400 mb-2">连接失败</h3>
+              <p class="text-zinc-400 mb-2" id="error-message">Token 无效或网络错误</p>
+              <button onclick="goToStep(2)" class="mt-4 px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition">
+                重新配置
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    let selectedPlatform = '';
+    let currentStep = 1;
+
+    function selectPlatform(platform) {
+      selectedPlatform = platform;
+      
+      // 隐藏所有配置
+      document.getElementById('telegram-config').classList.add('hidden');
+      document.getElementById('discord-config').classList.add('hidden');
+      document.getElementById('whatsapp-config').classList.add('hidden');
+      
+      // 显示选中的配置
+      if (platform === 'telegram') {
+        document.getElementById('telegram-config').classList.remove('hidden');
+      } else if (platform === 'discord') {
+        document.getElementById('discord-config').classList.remove('hidden');
+      } else if (platform === 'whatsapp') {
+        document.getElementById('whatsapp-config').classList.remove('hidden');
+      }
+      
+      goToStep(2);
+    }
+
+    function goToStep(step) {
+      currentStep = step;
+      
+      // 隐藏所有步骤
+      document.getElementById('step1').classList.add('hidden');
+      document.getElementById('step2').classList.add('hidden');
+      document.getElementById('step3').classList.add('hidden');
+      
+      // 显示当前步骤
+      document.getElementById(`step${step}`).classList.remove('hidden');
+      
+      // 更新指示器
+      for (let i = 1; i <= 3; i++) {
+        const indicator = document.getElementById(`step${i}-indicator`);
+        const dot = indicator.querySelector('div');
+        const text = indicator.querySelector('span');
+        
+        if (i < step) {
+          dot.className = 'w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-sm font-medium';
+          dot.textContent = '✓';
+          text.className = 'text-sm';
+        } else if (i === step) {
+          dot.className = 'w-8 h-8 rounded-full step-active flex items-center justify-center text-sm font-medium';
+          dot.textContent = i;
+          text.className = 'text-sm';
+        } else {
+          dot.className = 'w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-sm font-medium';
+          dot.textContent = i;
+          text.className = 'text-sm text-zinc-500';
+        }
+      }
+      
+      // Step 3: 开始验证
+      if (step === 3) {
+        verifyConnection();
+      }
+    }
+
+    function verifyConnection() {
+      document.getElementById('verifying').classList.remove('hidden');
+      document.getElementById('success').classList.add('hidden');
+      document.getElementById('error').classList.add('hidden');
+      
+      // 模拟验证
+      setTimeout(() => {
+        document.getElementById('verifying').classList.add('hidden');
+        
+        // 随机成功或失败 (80% 成功率)
+        if (Math.random() > 0.2) {
+          document.getElementById('success').classList.remove('hidden');
+        } else {
+          document.getElementById('error').classList.remove('hidden');
+        }
+      }, 2000);
+    }
+
+    function finish() {
+      alert('配置完成！返回 Channel 列表...');
+    }
+  </script>
+</body>
+</html>

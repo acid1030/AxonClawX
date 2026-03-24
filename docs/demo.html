@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AxonClaw - 综合演示</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            background: '#000000',
+            card: '#2c2c2e',
+            primary: '#0a84ff',
+            'primary-hover': '#0070e0',
+            secondary: '#3a3a3c',
+            muted: '#8e8e93',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif; }
+    .mac-scroll::-webkit-scrollbar { width: 8px; }
+    .mac-scroll::-webkit-scrollbar-track { background: transparent; }
+    .mac-scroll::-webkit-scrollbar-thumb { background: #3a3a3c; border-radius: 4px; }
+    .mac-scroll::-webkit-scrollbar-thumb:hover { background: #48484a; }
+  </style>
+</head>
+<body class="bg-black text-white min-h-screen">
+  <div class="flex h-screen">
+    <!-- 侧边栏 -->
+    <aside class="w-[72px] bg-[#1c1c1e] flex flex-col items-center py-4 border-r border-[#3a3a3c]">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-bold text-lg mb-6">A</div>
+      
+      <nav class="flex-1 flex flex-col items-center gap-2">
+        <button onclick="switchView('dashboard')" class="nav-btn w-10 h-10 rounded-lg bg-[#0a84ff] text-white flex items-center justify-center" title="仪表板">📊</button>
+        <button onclick="switchView('chat')" class="nav-btn w-10 h-10 rounded-lg bg-transparent text-muted hover:bg-[#2c2c2e] flex items-center justify-center transition" title="对话">💬</button>
+        <button onclick="switchView('agents')" class="nav-btn w-10 h-10 rounded-lg bg-transparent text-muted hover:bg-[#2c2c2e] flex items-center justify-center transition" title="Agent">🤖</button>
+        <button onclick="switchView('channels')" class="nav-btn w-10 h-10 rounded-lg bg-transparent text-muted hover:bg-[#2c2c2e] flex items-center justify-center transition" title="Channel">📡</button>
+        
+        <div class="w-6 h-px bg-[#3a3a3c] my-2"></div>
+        
+        <button onclick="switchView('memory')" class="nav-btn w-10 h-10 rounded-lg bg-transparent text-muted hover:bg-[#2c2c2e] flex items-center justify-center transition" title="记忆">🧠</button>
+        <button onclick="switchView('settings')" class="nav-btn w-10 h-10 rounded-lg bg-transparent text-muted hover:bg-[#2c2c2e] flex items-center justify-center transition" title="设置">⚙️</button>
+      </nav>
+      
+      <div class="mt-auto flex flex-col items-center gap-2 pb-4">
+        <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+      </div>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="flex-1 overflow-hidden">
+      <!-- Dashboard View -->
+      <div id="view-dashboard" class="view h-full p-6 overflow-auto mac-scroll">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h1 class="text-2xl font-bold">项目仪表板</h1>
+            <p class="text-muted mt-1">实时监控项目进度与团队状态</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-3 py-1 bg-[#2c2c2e] rounded-full text-sm">第一阶段</span>
+            <span class="px-3 py-1 bg-[#0a84ff] rounded-full text-sm font-medium">15% 完成</span>
+          </div>
+        </div>
+
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-4 gap-4 mb-6">
+          <div class="bg-[#2c2c2e] rounded-xl p-4 border border-[#3a3a3c]">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <span class="text-xl">🎯</span>
+              </div>
+              <div>
+                <p class="text-sm text-muted">整体进度</p>
+                <p class="text-2xl font-bold">15%</p>
+              </div>
+            </div>
+          </div>
+          <div class="bg-[#2c2c2e] rounded-xl p-4 border border-[#3a3a3c]">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+                <span class="text-xl">🤖</span>
+              </div>
+              <div>
+                <p class="text-sm text-muted">活跃 Agent</p>
+                <p class="text-2xl font-bold">6/24</p>
+              </div>
+            </div>
+          </div>
+          <div class="bg-[#2c2c2e] rounded-xl p-4 border border-[#3a3a3c]">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                <span class="text-xl">✅</span>
+              </div>
+              <div>
+                <p class="text-sm text-muted">今日任务</p>
+                <p class="text-2xl font-bold">5/8</p>
+              </div>
+            </div>
+          </div>
+          <div class="bg-[#2c2c2e] rounded-xl p-4 border border-[#3a3a3c]">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center">
+                <span class="text-xl">📅</span>
+              </div>
+              <div>
+                <p class="text-sm text-muted">里程碑</p>
+                <p class="text-2xl font-bold">0/5</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 里程碑 -->
+        <div class="grid grid-cols-3 gap-6 mb-6">
+          <div class="col-span-2 bg-[#2c2c2e] rounded-xl border border-[#3a3a3c] p-6">
+            <h2 class="text-lg font-semibold mb-4">🎯 里程碑进度</h2>
+            <div class="space-y-4">
+              <div>
+                <div class="flex justify-between mb-1">
+                  <span class="text-sm">社交平台集成</span>
+                  <span class="text-sm text-muted">0%</span>
+                </div>
+                <div class="h-2 bg-[#3a3a3c] rounded-full overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-blue-500 to-purple-600 w-0"></div>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between mb-1">
+                  <span class="text-sm">多 Agent 协作系统</span>
+                  <span class="text-sm text-muted">18%</span>
+                </div>
+                <div class="h-2 bg-[#3a3a3c] rounded-full overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-blue-500 to-purple-600 w-[18%]"></div>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between mb-1">
+                  <span class="text-sm">记忆系统增强</span>
+                  <span class="text-sm text-muted">5%</span>
+                </div>
+                <div class="h-2 bg-[#3a3a3c] rounded-full overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-blue-500 to-purple-600 w-[5%]"></div>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between mb-1">
+                  <span class="text-sm">Channel 管理可视化</span>
+                  <span class="text-sm text-muted">8%</span>
+                </div>
+                <div class="h-2 bg-[#3a3a3c] rounded-full overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-blue-500 to-purple-600 w-[8%]"></div>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between mb-1">
+                  <span class="text-sm">诊断工具</span>
+                  <span class="text-sm text-muted">0%</span>
+                </div>
+                <div class="h-2 bg-[#3a3a3c] rounded-full overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-blue-500 to-purple-600 w-0"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Agent 状态 -->
+          <div class="bg-[#2c2c2e] rounded-xl border border-[#3a3a3c] p-6">
+            <h2 class="text-lg font-semibold mb-4">🤖 Agent 状态</h2>
+            <div class="space-y-3" id="agent-status-list">
+              <!-- 动态生成 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 最近活动 -->
+        <div class="bg-[#2c2c2e] rounded-xl border border-[#3a3a3c] p-6">
+          <h2 class="text-lg font-semibold mb-4">📝 最近活动</h2>
+          <div class="space-y-3" id="activity-list">
+            <!-- 动态生成 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat View -->
+      <div id="view-chat" class="view hidden h-full flex-col">
+        <div class="p-4 border-b border-[#3a3a3c]">
+          <h1 class="text-xl font-bold">智能对话</h1>
+        </div>
+        <div class="flex-1 overflow-auto p-4 space-y-4 mac-scroll" id="chat-messages">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-semibold">A</div>
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-medium">Axon</span>
+                <span class="text-xs text-muted">14:30</span>
+              </div>
+              <div class="bg-[#2c2c2e] rounded-xl p-3 border border-[#3a3a3c]">
+                <p>你好！我是 AxonClaw 的 AI 助手。我可以帮助你管理项目、分配任务给 Agent 团队。有什么需要帮助的吗？</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 border-t border-[#3a3a3c]">
+          <div class="flex gap-2">
+            <input type="text" id="chat-input" placeholder="输入消息..." 
+              class="flex-1 bg-[#1c1c1e] border border-[#3a3a3c] rounded-lg px-4 py-2 focus:outline-none focus:border-[#0a84ff]"
+              onkeypress="if(event.key==='Enter')sendMessage()">
+            <button onclick="sendMessage()" class="px-4 py-2 bg-[#0a84ff] hover:bg-[#0070e0] rounded-lg font-medium transition">
+              发送
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agents View -->
+      <div id="view-agents" class="view hidden h-full p-6 overflow-auto mac-scroll">
+        <div class="flex items-center justify-between mb-6">
+          <h1 class="text-2xl font-bold">Agent 管理</h1>
+          <button onclick="showAddAgent()" class="px-4 py-2 bg-[#0a84ff] hover:bg-[#0070e0] rounded-lg font-medium transition">
+            + 新建 Agent
+          </button>
+        </div>
+        <div class="grid grid-cols-3 gap-4" id="agents-grid">
+          <!-- 动态生成 -->
+        </div>
+      </div>
+
+      <!-- Channels View -->
+      <div id="view-channels" class="view hidden h-full p-6 overflow-auto mac-scroll">
+        <div class="flex items-center justify-between mb-6">
+          <h1 class="text-2xl font-bold">Channel 配置</h1>
+          <button onclick="showChannelWizard()" class="px-4 py-2 bg-[#0a84ff] hover:bg-[#0070e0] rounded-lg font-medium transition">
+            + 添加 Channel
+          </button>
+        </div>
+        <div class="grid grid-cols-2 gap-4" id="channels-grid">
+          <div class="bg-[#2c2c2e] rounded-xl p-6 border border-[#3a3a3c]">
+            <div class="flex items-center gap-3 mb-4">
+              <span class="text-3xl">📱</span>
+              <div>
+                <h3 class="font-semibold">Telegram</h3>
+                <p class="text-sm text-muted">Bot API</p>
+              </div>
+              <span class="ml-auto px-2 py-1 bg-green-500/10 text-green-400 text-xs rounded">已连接</span>
+            </div>
+            <div class="flex gap-2">
+              <button class="flex-1 px-3 py-2 bg-[#3a3a3c] hover:bg-[#48484a] rounded-lg text-sm transition">配置</button>
+              <button class="flex-1 px-3 py-2 bg-[#3a3a3c] hover:bg-[#48484a] rounded-lg text-sm transition">测试</button>
+            </div>
+          </div>
+          <div class="bg-[#2c2c2e] rounded-xl p-6 border border-[#3a3a3c] opacity-50">
+            <div class="flex items-center gap-3 mb-4">
+              <span class="text-3xl">💬</span>
+              <div>
+                <h3 class="font-semibold">Discord</h3>
+                <p class="text-sm text-muted">Bot + Guild</p>
+              </div>
+              <span class="ml-auto px-2 py-1 bg-[#3a3a3c] text-muted text-xs rounded">未配置</span>
+            </div>
+            <button class="w-full px-3 py-2 bg-[#0a84ff] hover:bg-[#0070e0] rounded-lg text-sm transition">配置</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Memory View -->
+      <div id="view-memory" class="view hidden h-full p-6 overflow-auto mac-scroll">
+        <h1 class="text-2xl font-bold mb-6">记忆系统</h1>
+        <div class="bg-[#2c2c2e] rounded-xl border border-[#3a3a3c] p-6">
+          <p class="text-muted">记忆功能开发中...</p>
+        </div>
+      </div>
+
+      <!-- Settings View -->
+      <div id="view-settings" class="view hidden h-full p-6 overflow-auto mac-scroll">
+        <h1 class="text-2xl font-bold mb-6">系统设置</h1>
+        <div class="space-y-4 max-w-2xl">
+          <div class="bg-[#2c2c2e] rounded-xl border border-[#3a3a3c] p-4">
+            <h3 class="font-semibold mb-2">演示模式</h3>
+            <p class="text-sm text-muted mb-3">当前使用 Mock 模式，无需真实 Gateway 即可演示</p>
+            <div class="flex items-center gap-2">
+              <span class="px-3 py-1 bg-green-500/10 text-green-400 text-xs rounded">Mock 模式</span>
+              <span class="px-3 py-1 bg-[#3a3a3c] text-xs rounded">v0.1.0-demo</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // 数据
+    const agents = [
+      { name: 'AXON', role: '至高意志', status: 'busy', color: 'from-purple-500 to-pink-600' },
+      { name: 'NEXUS', role: '战略', status: 'idle', color: 'from-blue-500 to-cyan-600' },
+      { name: 'ARIA', role: '产品', status: 'busy', color: 'from-pink-500 to-rose-600' },
+      { name: 'KAEL', role: '工程', status: 'busy', color: 'from-orange-500 to-amber-600' },
+      { name: 'ZARA', role: '全栈', status: 'busy', color: 'from-green-500 to-emerald-600' },
+      { name: 'DANTE', role: '后端', status: 'busy', color: 'from-indigo-500 to-blue-600' },
+      { name: 'LUNA', role: '设计', status: 'idle', color: 'from-violet-500 to-purple-600' },
+      { name: 'BLAZE', role: '前端', status: 'busy', color: 'from-red-500 to-orange-600' },
+      { name: 'SPARK', role: '前端', status: 'idle', color: 'from-yellow-500 to-amber-600' },
+      { name: 'WAVE', role: 'API', status: 'idle', color: 'from-cyan-500 to-blue-600' },
+      { name: 'FLOW', role: '状态', status: 'idle', color: 'from-teal-500 to-green-600' },
+      { name: 'PIXEL', role: 'UI', status: 'idle', color: 'from-fuchsia-500 to-pink-600' },
+    ];
+
+    const activities = [
+      { time: '16:14', agent: 'AXON', action: '更新设计规范，使用 Mac 风格图标' },
+      { time: '16:10', agent: 'BLAZE', action: '创建基础 UI 组件' },
+      { time: '16:05', agent: 'ZARA', action: '完善 Agent 管理功能' },
+      { time: '15:50', agent: 'LUNA', action: '设计 Channel 配置向导' },
+      { time: '15:30', agent: 'DANTE', action: '编写 API 参考文档' },
+    ];
+
+    // 切换视图
+    function switchView(view) {
+      document.querySelectorAll('.view').forEach(el => el.classList.add('hidden'));
+      document.getElementById(`view-${view}`).classList.remove('hidden');
+      
+      document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('bg-[#0a84ff]', 'text-white');
+        btn.classList.add('bg-transparent', 'text-muted');
+      });
+      event.target.classList.remove('bg-transparent', 'text-muted');
+      event.target.classList.add('bg-[#0a84ff]', 'text-white');
+    }
+
+    // 渲染 Agent 状态
+    function renderAgentStatus() {
+      const container = document.getElementById('agent-status-list');
+      container.innerHTML = agents.slice(0, 8).map(agent => `
+        <div class="flex items-center gap-3 p-2 bg-[#3a3a3c]/50 rounded-lg">
+          <div class="w-8 h-8 rounded-full bg-gradient-to-br ${agent.color} flex items-center justify-center text-xs font-bold">
+            ${agent.name[0]}
+          </div>
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium">${agent.name}</span>
+              <span class="text-xs text-muted">${agent.role}</span>
+            </div>
+            <p class="text-xs text-muted">${agent.status === 'busy' ? '工作中' : '空闲'}</p>
+          </div>
+          <div class="w-2 h-2 rounded-full ${agent.status === 'busy' ? 'bg-green-500' : 'bg-muted'}"></div>
+        </div>
+      `).join('');
+    }
+
+    // 渲染活动
+    function renderActivity() {
+      const container = document.getElementById('activity-list');
+      container.innerHTML = activities.map(a => `
+        <div class="flex items-start gap-3">
+          <span class="text-xs text-muted w-12">${a.time}</span>
+          <span class="text-sm">
+            <span class="text-[#0a84ff] font-medium">${a.agent}</span>
+            <span class="text-muted"> ${a.action}</span>
+          </span>
+        </div>
+      `).join('');
+    }
+
+    // 渲染 Agent 网格
+    function renderAgentsGrid() {
+      const container = document.getElementById('agents-grid');
+      container.innerHTML = agents.map(agent => `
+        <div class="bg-[#2c2c2e] rounded-xl p-6 border border-[#3a3a3c] hover:border-[#0a84ff] transition cursor-pointer">
+          <div class="flex items-center justify-between mb-4">
+            <div class="w-12 h-12 rounded-full bg-gradient-to-br ${agent.color} flex items-center justify-center text-lg font-bold">
+              ${agent.name[0]}
+            </div>
+            <div class="w-2 h-2 rounded-full ${agent.status === 'busy' ? 'bg-green-500' : 'bg-muted'}"></div>
+          </div>
+          <h3 class="font-semibold mb-1">${agent.name}</h3>
+          <p class="text-sm text-muted mb-3">${agent.role}</p>
+          <div class="flex gap-2">
+            <button class="flex-1 px-3 py-1.5 bg-[#3a3a3c] hover:bg-[#48484a] rounded-lg text-xs transition">详情</button>
+            <button class="flex-1 px-3 py-1.5 bg-[#3a3a3c] hover:bg-[#48484a] rounded-lg text-xs transition">任务</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // 聊天功能
+    function sendMessage() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const container = document.getElementById('chat-messages');
+      
+      // 用户消息
+      container.innerHTML += `
+        <div class="flex items-start gap-3 justify-end">
+          <div class="flex-1 text-right">
+            <div class="flex items-center justify-end gap-2 mb-1">
+              <span class="text-xs text-muted">16:15</span>
+              <span class="font-medium">你</span>
+            </div>
+            <div class="bg-[#0a84ff] rounded-xl p-3 inline-block">
+              <p>${text}</p>
+            </div>
+          </div>
+          <div class="w-10 h-10 rounded-full bg-[#3a3a3c] flex items-center justify-center font-semibold">U</div>
+        </div>
+      `;
+
+      input.value = '';
+      container.scrollTop = container.scrollHeight;
+
+      // 模拟 AI 响应
+      setTimeout(() => {
+        const responses = [
+          '收到，我正在处理这个任务。',
+          '好的，已将任务分配给相应的 Agent。',
+          '明白，让我分析一下这个需求。',
+          '已完成，请查看最新进度。'
+        ];
+        const response = responses[Math.floor(Math.random() * responses.length)];
+        
+        container.innerHTML += `
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-semibold">A</div>
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-medium">Axon</span>
+                <span class="text-xs text-muted">${new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'})}</span>
+              </div>
+              <div class="bg-[#2c2c2e] rounded-xl p-3 border border-[#3a3a3c]">
+                <p>${response}</p>
+              </div>
+            </div>
+          </div>
+        `;
+        container.scrollTop = container.scrollHeight;
+      }, 1000);
+    }
+
+    // 初始化
+    renderAgentStatus();
+    renderActivity();
+    renderAgentsGrid();
+  </script>
+</body>
+</html>

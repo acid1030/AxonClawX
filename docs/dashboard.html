@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AxonClaw 项目看板</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    :root {
+      --bg-primary: #0f0f0f;
+      --bg-secondary: #1a1a1a;
+      --bg-card: #222222;
+      --border: #333333;
+      --text-primary: #ffffff;
+      --text-secondary: #888888;
+      --accent: #6366f1;
+      --success: #22c55e;
+      --warning: #eab308;
+      --danger: #ef4444;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 32px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .header h1 {
+      font-size: 28px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 20px;
+    }
+    
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg-card);
+      border-radius: 20px;
+      font-size: 14px;
+    }
+    
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    
+    .stat-card {
+      background: var(--bg-card);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid var(--border);
+    }
+    
+    .stat-card .label {
+      color: var(--text-secondary);
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    
+    .stat-card .value {
+      font-size: 32px;
+      font-weight: 700;
+    }
+    
+    .stat-card .change {
+      font-size: 12px;
+      color: var(--success);
+      margin-top: 4px;
+    }
+    
+    .main-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 24px;
+    }
+    
+    .card {
+      background: var(--bg-card);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .card-header h2 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    
+    .card-body {
+      padding: 20px;
+    }
+    
+    /* 里程碑 */
+    .milestone {
+      margin-bottom: 16px;
+    }
+    
+    .milestone-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    
+    .milestone-name {
+      font-weight: 500;
+    }
+    
+    .milestone-progress {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+    
+    .progress-bar {
+      height: 6px;
+      background: var(--bg-secondary);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #8b5cf6);
+      border-radius: 3px;
+      transition: width 0.5s ease;
+    }
+    
+    /* Agent 列表 */
+    .agent-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .agent-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    
+    .agent-info {
+      flex: 1;
+    }
+    
+    .agent-name {
+      font-weight: 500;
+      font-size: 14px;
+    }
+    
+    .agent-task {
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+    
+    .agent-status {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    
+    .agent-status.busy { background: var(--success); }
+    .agent-status.idle { background: var(--text-secondary); }
+    
+    /* 任务列表 */
+    .task-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .task-status {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    
+    .task-status.done { background: var(--success); }
+    .task-status.progress { background: var(--accent); }
+    .task-status.pending { background: var(--text-secondary); }
+    
+    .task-info {
+      flex: 1;
+    }
+    
+    .task-title {
+      font-size: 14px;
+    }
+    
+    .task-meta {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    
+    .tag {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      background: var(--bg-card);
+    }
+    
+    .tag.p0 { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+    .tag.p1 { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+    .tag.p2 { background: rgba(99, 102, 241, 0.2); color: #6366f1; }
+    
+    /* 活动日志 */
+    .activity-item {
+      display: flex;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .activity-time {
+      color: var(--text-secondary);
+      font-size: 12px;
+      width: 50px;
+    }
+    
+    .activity-content {
+      flex: 1;
+      font-size: 13px;
+    }
+    
+    .activity-agent {
+      color: var(--accent);
+      font-weight: 500;
+    }
+    
+    /* 底部信息 */
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+    
+    .refresh-info {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>
+      <div class="logo">A</div>
+      AxonClaw 项目看板
+    </h1>
+    <div class="status-badge">
+      <div class="status-dot"></div>
+      <span>实时监控中</span>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="label">整体进度</div>
+      <div class="value" id="overall-progress">15%</div>
+      <div class="change">+3% 本周</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">活跃 Agent</div>
+      <div class="value" id="active-agents">3/20</div>
+      <div class="change">+5 新增</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">今日任务</div>
+      <div class="value" id="today-tasks">1/5</div>
+      <div class="change">进行中</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">里程碑</div>
+      <div class="value" id="milestones">0/5</div>
+      <div class="change">Q3 目标</div>
+    </div>
+  </div>
+
+  <div class="main-grid">
+    <div class="left-column">
+      <!-- 里程碑 -->
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-header">
+          <h2>🎯 里程碑进度</h2>
+          <span style="color: var(--text-secondary); font-size: 13px;">第一阶期</span>
+        </div>
+        <div class="card-body" id="milestones-list">
+          <!-- 动态填充 -->
+        </div>
+      </div>
+      
+      <!-- 今日任务 -->
+      <div class="card">
+        <div class="card-header">
+          <h2>📋 今日任务</h2>
+          <span style="color: var(--accent); font-size: 13px; cursor: pointer;">+ 添加任务</span>
+        </div>
+        <div class="card-body" id="tasks-list">
+          <!-- 动态填充 -->
+        </div>
+      </div>
+    </div>
+    
+    <div class="right-column">
+      <!-- Agent 状态 -->
+      <div class="card" style="margin-bottom: 24px;">
+        <div class="card-header">
+          <h2>🤖 Agent 状态</h2>
+          <span id="agent-count" style="color: var(--text-secondary); font-size: 13px;">20 在线</span>
+        </div>
+        <div class="card-body" id="agents-list">
+          <!-- 动态填充 -->
+        </div>
+      </div>
+      
+      <!-- 最近活动 -->
+      <div class="card">
+        <div class="card-header">
+          <h2>📝 最近活动</h2>
+        </div>
+        <div class="card-body" id="activity-list">
+          <!-- 动态填充 -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="refresh-info">
+      <span>🔄 自动刷新中</span>
+      <span>|</span>
+      <span id="last-update">最后更新: --:--:--</span>
+    </div>
+  </div>
+
+  <script>
+    // 项目数据
+    const projectData = {
+      overallProgress: 15,
+      activeAgents: 3,
+      totalAgents: 20,
+      todayTasks: 1,
+      totalTasks: 5,
+      completedMilestones: 0,
+      totalMilestones: 5,
+      
+      milestones: [
+        { name: '社交平台集成', progress: 0, status: 'pending', target: 'Q2' },
+        { name: '多Agent协作系统', progress: 18, status: 'progress', target: 'Q3' },
+        { name: '记忆系统增强', progress: 5, status: 'pending', target: 'Q3' },
+        { name: 'Channel管理可视化', progress: 8, status: 'pending', target: 'Q3' },
+        { name: '诊断工具', progress: 0, status: 'pending', target: 'Q3' }
+      ],
+      
+      tasks: [
+        { title: '创建Agent管理界面', agent: 'ZARA', priority: 'P0', status: 'progress' },
+        { title: '重构侧边栏导航', agent: 'ZARA', priority: 'P0', status: 'done' },
+        { title: 'Channel配置向导', agent: 'ARIA', priority: 'P1', status: 'pending' },
+        { title: 'Gateway API文档', agent: 'DANTE', priority: 'P1', status: 'pending' },
+        { title: '编写测试用例', agent: 'REX', priority: 'P2', status: 'pending' }
+      ],
+      
+      agents: [
+        { name: 'AXON', role: '至高意志', status: 'busy', task: '项目协调' },
+        { name: 'NEXUS', role: '战略', status: 'idle', task: null },
+        { name: 'ARIA', role: '产品', status: 'busy', task: '需求设计' },
+        { name: 'KAEL', role: '工程', status: 'busy', task: '架构评审' },
+        { name: 'ZARA', role: '全栈', status: 'busy', task: 'Agent界面' },
+        { name: 'DANTE', role: '后端', status: 'busy', task: 'API开发' },
+        { name: 'LUNA', role: '设计', status: 'busy', task: 'UI设计' },
+        { name: 'ATLAS', role: '运维', status: 'idle', task: null },
+        { name: 'REX', role: '测试', status: 'idle', task: null },
+        { name: 'CIPHER', role: '安全', status: 'idle', task: null },
+        { name: 'ECHO', role: '数据', status: 'idle', task: null },
+        { name: 'SCRIBE', role: '文档', status: 'busy', task: '文档更新' },
+        { name: 'MUSE', role: '内容', status: 'idle', task: null },
+        { name: 'NOVA', role: '增长', status: 'idle', task: null },
+        { name: 'PULSE', role: '获客', status: 'idle', task: null },
+        { name: 'HAVEN', role: '客服', status: 'idle', task: null },
+        { name: 'SAGE', role: '研究', status: 'idle', task: null },
+        { name: 'BLAZE', role: '前端', status: 'busy', task: '组件开发' },
+        { name: 'SPARK', role: '前端', status: 'busy', task: '页面实现' },
+        { name: 'NOVA2', role: '增长', status: 'idle', task: null }
+      ],
+      
+      activities: [
+        { time: '14:44', agent: 'AXON', action: '创建动态看板页面' },
+        { time: '14:40', agent: 'AXON', action: '扩充Agent团队至20人' },
+        { time: '14:30', agent: 'ZARA', action: '更新AgentList组件' },
+        { time: '14:26', agent: 'AXON', action: '集成仪表板到主布局' },
+        { time: '14:15', agent: 'ZARA', action: '创建AgentForm组件' },
+        { time: '14:05', agent: 'ZARA', action: '创建agentsStore' },
+        { time: '13:50', agent: 'AXON', action: '创建执行计划' }
+      ]
+    };
+    
+    // 渲染里程碑
+    function renderMilestones() {
+      const container = document.getElementById('milestones-list');
+      container.innerHTML = projectData.milestones.map(m => `
+        <div class="milestone">
+          <div class="milestone-header">
+            <span class="milestone-name">${m.name}</span>
+            <span class="milestone-progress">${m.progress}% · ${m.target}</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width: ${m.progress}%"></div>
+          </div>
+        </div>
+      `).join('');
+    }
+    
+    // 渲染任务
+    function renderTasks() {
+      const container = document.getElementById('tasks-list');
+      container.innerHTML = projectData.tasks.map(t => `
+        <div class="task-item">
+          <div class="task-status ${t.status === 'done' ? 'done' : t.status === 'progress' ? 'progress' : 'pending'}">
+            ${t.status === 'done' ? '✓' : t.status === 'progress' ? '▸' : '○'}
+          </div>
+          <div class="task-info">
+            <div class="task-title">${t.title}</div>
+            <div class="task-meta">
+              <span class="tag ${t.priority.toLowerCase()}">${t.priority}</span>
+              <span class="tag">${t.agent}</span>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+    
+    // 渲染Agent
+    function renderAgents() {
+      const container = document.getElementById('agents-list');
+      const busyAgents = projectData.agents.filter(a => a.status === 'busy');
+      const idleAgents = projectData.agents.filter(a => a.status === 'idle');
+      
+      container.innerHTML = [...busyAgents, ...idleAgents].slice(0, 10).map(a => `
+        <div class="agent-item">
+          <div class="agent-avatar">${a.name[0]}</div>
+          <div class="agent-info">
+            <div class="agent-name">${a.name}</div>
+            <div class="agent-task">${a.task || '空闲'}</div>
+          </div>
+          <div class="agent-status ${a.status}"></div>
+        </div>
+      `).join('');
+      
+      document.getElementById('agent-count').textContent = `${projectData.agents.filter(a => a.status === 'busy').length}/${projectData.totalAgents} 在线`;
+    }
+    
+    // 渲染活动
+    function renderActivities() {
+      const container = document.getElementById('activity-list');
+      container.innerHTML = projectData.activities.map(a => `
+        <div class="activity-item">
+          <span class="activity-time">${a.time}</span>
+          <span class="activity-content">
+            <span class="activity-agent">${a.agent}</span> ${a.action}
+          </span>
+        </div>
+      `).join('');
+    }
+    
+    // 更新统计数据
+    function updateStats() {
+      document.getElementById('overall-progress').textContent = projectData.overallProgress + '%';
+      document.getElementById('active-agents').textContent = 
+        `${projectData.agents.filter(a => a.status === 'busy').length}/${projectData.totalAgents}`;
+      document.getElementById('today-tasks').textContent = 
+        `${projectData.tasks.filter(t => t.status === 'done').length}/${projectData.totalTasks}`;
+      document.getElementById('milestones').textContent = 
+        `${projectData.completedMilestones}/${projectData.totalMilestones}`;
+    }
+    
+    // 更新时间
+    function updateTime() {
+      const now = new Date();
+      document.getElementById('last-update').textContent = 
+        `最后更新: ${now.toLocaleTimeString('zh-CN')}`;
+    }
+    
+    // 模拟进度更新
+    function simulateProgress() {
+      // 随机更新里程碑进度
+      projectData.milestones.forEach(m => {
+        if (m.status === 'progress' && m.progress < 100) {
+          m.progress = Math.min(100, m.progress + Math.random() * 2);
+        }
+      });
+      
+      // 更新整体进度
+      projectData.overallProgress = Math.round(
+        projectData.milestones.reduce((sum, m) => sum + m.progress, 0) / projectData.milestones.length
+      );
+    }
+    
+    // 初始化
+    function init() {
+      renderMilestones();
+      renderTasks();
+      renderAgents();
+      renderActivities();
+      updateStats();
+      updateTime();
+    }
+    
+    // 定时刷新
+    setInterval(() => {
+      simulateProgress();
+      init();
+    }, 5000);
+    
+    // 启动
+    init();
+  </script>
+</body>
+</html>

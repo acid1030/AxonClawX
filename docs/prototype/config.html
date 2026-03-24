@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AxonClaw 原型 - 配置中心</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="../UI/AxonClaw.png" alt="AxonClaw Logo" />
+        <div>
+          <div>AxonClaw</div>
+          <div class="list-meta">AI Ops Platform</div>
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">主导航</div>
+        <a class="nav-item" href="chat.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M5 6h14v9H8l-3 3V6z"></path>
+            </svg>
+          </span>
+          <span>聊天中心</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item active" href="config.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M12 2v4"></path>
+              <path d="M12 18v4"></path>
+              <path d="M4.9 4.9l2.8 2.8"></path>
+              <path d="M16.3 16.3l2.8 2.8"></path>
+              <path d="M2 12h4"></path>
+              <path d="M18 12h4"></path>
+              <path d="M4.9 19.1l2.8-2.8"></path>
+              <path d="M16.3 7.7l2.8-2.8"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </span>
+          <span>配置中心</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="nodes.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <rect x="3" y="3" width="7" height="7" rx="2"></rect>
+              <rect x="14" y="3" width="7" height="7" rx="2"></rect>
+              <rect x="3" y="14" width="7" height="7" rx="2"></rect>
+              <path d="M10 7h4"></path>
+              <path d="M7 10v4"></path>
+              <path d="M14 17h7"></path>
+            </svg>
+          </span>
+          <span>节点配置</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="agents.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <circle cx="12" cy="7" r="4"></circle>
+              <path d="M4 21c1.5-4 14.5-4 16 0"></path>
+            </svg>
+          </span>
+          <span>子代理</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="system.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <rect x="3" y="4" width="18" height="13" rx="2"></rect>
+              <path d="M8 20h8"></path>
+            </svg>
+          </span>
+          <span>系统配置</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="sessions.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M4 6h16"></path>
+              <path d="M4 12h10"></path>
+              <path d="M4 18h14"></path>
+            </svg>
+          </span>
+          <span>对话管理</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="logs.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M5 4h10l4 4v12H5z"></path>
+              <path d="M9 13h6"></path>
+              <path d="M9 17h6"></path>
+            </svg>
+          </span>
+          <span>日志</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="templates.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M4 4h16v6H4z"></path>
+              <path d="M4 14h10v6H4z"></path>
+              <path d="M16 14h4v6h-4z"></path>
+            </svg>
+          </span>
+          <span>模板中心</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="plugins.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M12 2v4"></path>
+              <path d="M12 18v4"></path>
+              <path d="M4 12h4"></path>
+              <path d="M16 12h4"></path>
+              <path d="M7 7l2.5 2.5"></path>
+              <path d="M14.5 14.5L17 17"></path>
+              <circle cx="12" cy="12" r="4"></circle>
+            </svg>
+          </span>
+          <span>插件平台</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">快捷入口</div>
+        <div class="nav-item">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M4 12h16"></path>
+              <path d="M12 4v16"></path>
+            </svg>
+          </span>
+          <span>Agent 角色库</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </div>
+        <div class="nav-item">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <circle cx="12" cy="12" r="7"></circle>
+              <path d="M12 7v10"></path>
+              <path d="M7 12h10"></path>
+            </svg>
+          </span>
+          <span>Channel 管理</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </div>
+        <div class="nav-item">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M4 6h16"></path>
+              <path d="M4 12h16"></path>
+              <path d="M4 18h16"></path>
+            </svg>
+          </span>
+          <span>诊断工具</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <input class="search" placeholder="搜索 Provider / 配置项..." />
+        <div class="top-actions">
+          <button class="button" data-modal-trigger="provider">添加 Provider</button>
+          <button class="button primary">保存更改</button>
+        </div>
+      </div>
+
+      <section class="hero">
+        <div>
+          <div class="card-title">配置中心概览</div>
+          <p class="card-subtitle">参考配置中心设计稿，分区展示模型接入、Workspace、权限与安全策略。</p>
+          <div class="pill-list">
+            <span class="tag">多模型接入</span>
+            <span class="tag">RBAC</span>
+            <span class="tag">密钥管理</span>
+          </div>
+        </div>
+        <img src="../UI/配置中心.png" alt="配置中心" />
+      </section>
+
+      <section class="section" data-tab-group>
+        <div class="section-title">Provider 配置</div>
+        <div class="tabs">
+          <div class="tab active" data-tab="llm">LLM Provider</div>
+          <div class="tab" data-tab="image">图像模型</div>
+          <div class="tab" data-tab="video">视频工具</div>
+        </div>
+        <div class="tab-pane active" data-tab-pane="llm">
+          <div class="grid two">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Claude / GPT 接入</div>
+                  <div class="card-subtitle">API Key、模型、路由策略</div>
+                </div>
+                <span class="badge">已连接 5</span>
+              </div>
+              <div class="config-row">
+                <div class="config-field">
+                  默认模型
+                  <input class="config-input" placeholder="claude-opus-4-6" />
+                </div>
+                <div class="config-field">
+                  负载策略
+                  <input class="config-input" placeholder="优先级路由" />
+                </div>
+              </div>
+              <div class="config-row">
+                <div class="config-field">
+                  API Key
+                  <input class="config-input" placeholder="sk-xxxxxx" />
+                </div>
+                <div class="config-field">
+                  速率限制
+                  <input class="config-input" placeholder="500 req/min" />
+                </div>
+              </div>
+              <button class="button primary">测试连接</button>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Provider 状态</div>
+                  <div class="card-subtitle">运行健康 / 诊断</div>
+                </div>
+              </div>
+              <div class="list">
+                <div class="list-item">
+                  <div>Claude</div>
+                  <span class="status"><span class="dot"></span>健康</span>
+                </div>
+                <div class="list-item">
+                  <div>GPT-4.1</div>
+                  <span class="status warning"><span class="dot"></span>繁忙</span>
+                </div>
+                <div class="list-item">
+                  <div>Kimi</div>
+                  <span class="status error"><span class="dot"></span>掉线</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="tab-pane" data-tab-pane="image">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">图像模型池</div>
+                <div class="card-subtitle">SD / MJ / DALL-E 3</div>
+              </div>
+            </div>
+            <div class="list">
+              <div class="list-item">
+                <div>Stable Diffusion</div>
+                <span class="badge">已启用</span>
+              </div>
+              <div class="list-item">
+                <div>Midjourney</div>
+                <span class="badge">测试中</span>
+              </div>
+              <div class="list-item">
+                <div>DALL·E 3</div>
+                <span class="badge">待接入</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="tab-pane" data-tab-pane="video">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">视频处理工具</div>
+                <div class="card-subtitle">FFmpeg / 自研渲染</div>
+              </div>
+            </div>
+            <p class="card-subtitle">可配置渲染队列、CPU/GPU 优先级与输出预设。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">工作区与权限</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Workspace 设置</div>
+                <div class="card-subtitle">数据源 / 备份 / 版本</div>
+              </div>
+            </div>
+            <div class="collapse" data-collapse>
+              <div class="collapse-header" data-collapse-header>
+                工作区备份策略
+                <span class="badge">展开</span>
+              </div>
+              <div class="collapse-body" data-collapse-body>
+                <div class="list">
+                  <div class="list-item">
+                    <div>自动备份</div>
+                    <span class="badge">每 24 小时</span>
+                  </div>
+                  <div class="list-item">
+                    <div>云端同步</div>
+                    <span class="badge">未启用</span>
+                  </div>
+                  <div class="list-item">
+                    <div>版本历史</div>
+                    <span class="badge">保留 30 天</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">RBAC 权限</div>
+                <div class="card-subtitle">管理员 / 编辑 / 访客</div>
+              </div>
+              <button class="button">编辑角色</button>
+            </div>
+            <div class="list">
+              <div class="list-item">
+                <div>Admin</div>
+                <span class="badge">全权限</span>
+              </div>
+              <div class="list-item">
+                <div>Editor</div>
+                <span class="badge">内容管理</span>
+              </div>
+              <div class="list-item">
+                <div>Viewer</div>
+                <span class="badge">只读</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">安全与诊断</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">安全策略</div>
+                <div class="card-subtitle">密钥 / 审计 / 白名单</div>
+              </div>
+              <span class="badge">P0</span>
+            </div>
+            <div class="list">
+              <div class="list-item">
+                <div>API Key 轮换</div>
+                <span class="badge">已启用</span>
+              </div>
+              <div class="list-item">
+                <div>访问审计</div>
+                <span class="badge">14 日</span>
+              </div>
+              <div class="list-item">
+                <div>白名单配置</div>
+                <span class="badge">32 项</span>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">诊断工具</div>
+                <div class="card-subtitle">一键检查与修复</div>
+              </div>
+              <span class="badge">P0</span>
+            </div>
+            <div class="pill-list">
+              <span class="tag">端口检查</span>
+              <span class="tag">网络连接</span>
+              <span class="tag">Gateway 状态</span>
+              <span class="tag">Provider 连接</span>
+            </div>
+            <button class="button">运行诊断</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="right-panel">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">配置状态</div>
+            <div class="card-subtitle">安全与合规</div>
+          </div>
+          <span class="badge">稳定</span>
+        </div>
+        <div class="metric">
+          <div class="list-meta">API Key 数量</div>
+          <div class="metric-value">12</div>
+        </div>
+        <div class="metric">
+          <div class="list-meta">最近同步</div>
+          <div class="metric-value">5 分钟前</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="modal-backdrop" data-modal="provider">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">添加 Provider</div>
+        <button class="button" data-modal-close>关闭</button>
+      </div>
+      <div class="config-row">
+        <div class="config-field">
+          Provider 类型
+          <input class="config-input" placeholder="Claude" />
+        </div>
+        <div class="config-field">
+          API Key
+          <input class="config-input" placeholder="sk-xxxxxx" />
+        </div>
+      </div>
+      <button class="button primary">保存</button>
+    </div>
+  </div>
+
+  <script src="../assets/app.js"></script>
+</body>
+</html>

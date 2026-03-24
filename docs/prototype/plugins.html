@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AxonClaw 原型 - 插件平台</title>
+  <link rel="stylesheet" href="../assets/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="../UI/AxonClaw.png" alt="AxonClaw Logo" />
+        <div>
+          <div>AxonClaw</div>
+          <div class="list-meta">AI Ops Platform</div>
+        </div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">主导航</div>
+        <a class="nav-item" href="chat.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M5 6h14v9H8l-3 3V6z"></path>
+            </svg>
+          </span>
+          <span>聊天中心</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="config.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M12 2v4"></path>
+              <path d="M12 18v4"></path>
+              <path d="M4.9 4.9l2.8 2.8"></path>
+              <path d="M16.3 16.3l2.8 2.8"></path>
+              <path d="M2 12h4"></path>
+              <path d="M18 12h4"></path>
+              <path d="M4.9 19.1l2.8-2.8"></path>
+              <path d="M16.3 7.7l2.8-2.8"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </span>
+          <span>配置中心</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="nodes.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <rect x="3" y="3" width="7" height="7" rx="2"></rect>
+              <rect x="14" y="3" width="7" height="7" rx="2"></rect>
+              <rect x="3" y="14" width="7" height="7" rx="2"></rect>
+              <path d="M10 7h4"></path>
+              <path d="M7 10v4"></path>
+              <path d="M14 17h7"></path>
+            </svg>
+          </span>
+          <span>节点配置</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="agents.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <circle cx="12" cy="7" r="4"></circle>
+              <path d="M4 21c1.5-4 14.5-4 16 0"></path>
+            </svg>
+          </span>
+          <span>子代理</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="system.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <rect x="3" y="4" width="18" height="13" rx="2"></rect>
+              <path d="M8 20h8"></path>
+            </svg>
+          </span>
+          <span>系统配置</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="sessions.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M4 6h16"></path>
+              <path d="M4 12h10"></path>
+              <path d="M4 18h14"></path>
+            </svg>
+          </span>
+          <span>对话管理</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="logs.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M5 4h10l4 4v12H5z"></path>
+              <path d="M9 13h6"></path>
+              <path d="M9 17h6"></path>
+            </svg>
+          </span>
+          <span>日志</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item" href="templates.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M4 4h16v6H4z"></path>
+              <path d="M4 14h10v6H4z"></path>
+              <path d="M16 14h4v6h-4z"></path>
+            </svg>
+          </span>
+          <span>模板中心</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+        <a class="nav-item active" href="plugins.html">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M12 2v4"></path>
+              <path d="M12 18v4"></path>
+              <path d="M4 12h4"></path>
+              <path d="M16 12h4"></path>
+              <path d="M7 7l2.5 2.5"></path>
+              <path d="M14.5 14.5L17 17"></path>
+              <circle cx="12" cy="12" r="4"></circle>
+            </svg>
+          </span>
+          <span>插件平台</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">快捷入口</div>
+        <div class="nav-item">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M4 12h16"></path>
+              <path d="M12 4v16"></path>
+            </svg>
+          </span>
+          <span>Agent 角色库</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </div>
+        <div class="nav-item">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <circle cx="12" cy="12" r="7"></circle>
+              <path d="M12 7v10"></path>
+              <path d="M7 12h10"></path>
+            </svg>
+          </span>
+          <span>Channel 管理</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </div>
+        <div class="nav-item">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+              <path d="M4 6h16"></path>
+              <path d="M4 12h16"></path>
+              <path d="M4 18h16"></path>
+            </svg>
+          </span>
+          <span>诊断工具</span>
+          <img class="app-icon" src="../icon/icon.icns" alt="icon" />
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <input class="search" placeholder="搜索插件..." />
+        <div class="top-actions">
+          <button class="button" data-modal-trigger="plugin">上传插件</button>
+          <button class="button primary">新建插件</button>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="section-title">插件市场</div>
+        <div class="grid two">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">市场榜单</div>
+                <div class="card-subtitle">评分 / 下载 / 分类</div>
+              </div>
+            </div>
+            <div class="list">
+              <div class="list-item">
+                <div>
+                  <div>视频脚本生成器</div>
+                  <div class="list-meta">适配 Douyin / Bilibili</div>
+                </div>
+                <button class="button">安装</button>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>CRM 同步插件</div>
+                  <div class="list-meta">HubSpot / Salesforce</div>
+                </div>
+                <button class="button">安装</button>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>质检审阅 Agent</div>
+                  <div class="list-meta">内容审核 / 合规检测</div>
+                </div>
+                <button class="button">更新</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">插件开发区</div>
+                <div class="card-subtitle">可视化编辑器 + 沙盒测试</div>
+              </div>
+              <button class="button primary">新建插件</button>
+            </div>
+            <div class="pill-list">
+              <span class="tag">拖拽式流程</span>
+              <span class="tag">TypeScript 编辑</span>
+              <span class="tag">实时预览</span>
+              <span class="tag">沙盒隔离</span>
+            </div>
+            <div class="divider"></div>
+            <div class="list">
+              <div class="list-item">
+                <div>
+                  <div>营销素材生成器</div>
+                  <div class="list-meta">最近更新 2 小时前</div>
+                </div>
+                <span class="badge">草稿</span>
+              </div>
+              <div class="list-item">
+                <div>
+                  <div>自动诊断工具</div>
+                  <div class="list-meta">已发布 v1.2.0</div>
+                </div>
+                <span class="badge">已发布</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" data-tab-group>
+        <div class="section-title">插件分类</div>
+        <div class="tabs">
+          <div class="tab active" data-tab="runtime">运行时</div>
+          <div class="tab" data-tab="channel">Channel</div>
+          <div class="tab" data-tab="agent">Agent</div>
+        </div>
+        <div class="tab-pane active" data-tab-pane="runtime">
+          <div class="card">
+            <p class="card-subtitle">运行时插件支持沙盒隔离、资源限制与策略路由。</p>
+          </div>
+        </div>
+        <div class="tab-pane" data-tab-pane="channel">
+          <div class="card">
+            <p class="card-subtitle">Channel 插件覆盖微信、飞书、Slack 等接入。</p>
+          </div>
+        </div>
+        <div class="tab-pane" data-tab-pane="agent">
+          <div class="card">
+            <p class="card-subtitle">Agent 插件扩展专业能力与协作流程。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="right-panel">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">插件指标</div>
+            <div class="card-subtitle">市场表现</div>
+          </div>
+        </div>
+        <div class="metric">
+          <div class="list-meta">已安装</div>
+          <div class="metric-value">42</div>
+        </div>
+        <div class="metric">
+          <div class="list-meta">待更新</div>
+          <div class="metric-value">6</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="modal-backdrop" data-modal="plugin">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">上传插件</div>
+        <button class="button" data-modal-close>关闭</button>
+      </div>
+      <p class="card-subtitle">支持上传 zip 或 plugin.yaml。</p>
+      <button class="button primary">选择文件</button>
+    </div>
+  </div>
+
+  <script src="../assets/app.js"></script>
+</body>
+</html>

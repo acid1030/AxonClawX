@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-03-15T01:36:33.613Z",
+  "totalTests": 6,
+  "errors": [],
+  "consoleMessages": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting..."
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected."
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold"
+    },
+    {
+      "type": "log",
+      "text": "[Store] No gateway token found, using offline mode"
+    },
+    {
+      "type": "log",
+      "text": "[Store] No gateway token found, using offline mode"
+    },
+    {
+      "type": "log",
+      "text": "[Store] No gateway token found, using offline mode"
+    }
+  ],
+  "hasReact": true,
+  "hasContent": true,
+  "buttonsCount": 11,
+  "sidebarFound": true
+}

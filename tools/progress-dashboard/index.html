@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AxonClawX 任务进度看板</title>
+  <style>
+    body { font-family: Inter, -apple-system, sans-serif; margin: 0; background: #0b1020; color: #e5e7eb; }
+    .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    .grid { display: grid; gap: 12px; }
+    .g4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
+    .card { background: #11182d; border: 1px solid #2a3659; border-radius: 12px; padding: 14px; }
+    .muted { color: #9ca3af; font-size: 12px; }
+    .value { font-size: 22px; font-weight: 700; }
+    .bar { height: 10px; background: #1f2a44; border-radius: 99px; overflow: hidden; }
+    .bar > div { height: 100%; background: linear-gradient(90deg,#22c55e,#06b6d4); }
+    table { width: 100%; border-collapse: collapse; }
+    td,th { border-bottom: 1px solid #24304f; padding: 8px; text-align: left; font-size: 13px; }
+    .pill { padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+    .done { background:#14532d; color:#86efac; }
+    .prog { background:#1e3a8a; color:#93c5fd; }
+    .todo { background:#3f3f46; color:#d4d4d8; }
+    .row { display:flex; justify-content:space-between; align-items:center; }
+  </style>
+</head>
+<body>
+  <div class="wrap grid">
+    <div class="row">
+      <h2 style="margin:0">AxonClawX 任务进度看板</h2>
+      <div class="muted" id="time">--</div>
+    </div>
+
+    <div class="card">
+      <div class="row"><div>总体完成度</div><div id="overall">0%</div></div>
+      <div class="bar" style="margin-top:8px"><div id="overallBar" style="width:0%"></div></div>
+    </div>
+
+    <div class="grid g4">
+      <div class="card"><div class="muted">任务总数</div><div class="value" id="taskTotal">0</div></div>
+      <div class="card"><div class="muted">已完成</div><div class="value" id="taskDone">0</div></div>
+      <div class="card"><div class="muted">进行中</div><div class="value" id="taskInProgress">0</div></div>
+      <div class="card"><div class="muted">待办</div><div class="value" id="taskTodo">0</div></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 8px">当前任务</h3>
+      <table>
+        <thead><tr><th>任务</th><th>状态</th><th>进度</th><th>说明</th></tr></thead>
+        <tbody id="tasks"></tbody>
+      </table>
+    </div>
+
+    <div class="grid g4">
+      <div class="card" style="grid-column: span 2;">
+        <h3 style="margin:0 0 8px">最近提交</h3>
+        <div id="commits" class="muted">--</div>
+      </div>
+      <div class="card" style="grid-column: span 2;">
+        <h3 style="margin:0 0 8px">待清理 i18n 文件数</h3>
+        <div class="value" id="debt">0</div>
+      </div>
+    </div>
+
+    <div class="muted">自动刷新：<span id="refresh">10</span>s</div>
+  </div>
+
+  <script>
+    function esc(s){return String(s??'').replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]))}
+    function statusClass(s){return s==='done'?'done':(s==='in_progress'?'prog':'todo')}
+    function statusText(s){return s==='done'?'已完成':(s==='in_progress'?'进行中':'待办')}
+
+    async function load(){
+      const res = await fetch('/api/status', { cache: 'no-store' });
+      const d = await res.json();
+
+      document.getElementById('time').textContent = '更新时间: ' + new Date(d.serverTime).toLocaleString();
+      document.getElementById('overall').textContent = d.weightedProgress + '%';
+      document.getElementById('overallBar').style.width = d.weightedProgress + '%';
+      document.getElementById('taskTotal').textContent = d.summary.taskTotal;
+      document.getElementById('taskDone').textContent = d.summary.taskDone;
+      document.getElementById('taskInProgress').textContent = d.summary.taskInProgress;
+      document.getElementById('taskTodo').textContent = d.summary.taskTodo;
+      document.getElementById('debt').textContent = d.summary.i18nDebtFiles;
+      document.getElementById('refresh').textContent = d.refreshSeconds;
+
+      const tasks = d.tasks.map(t => `\n<tr>\n<td>${esc(t.title)}</td>\n<td><span class="pill ${statusClass(t.status)}">${statusText(t.status)}</span></td>\n<td>${t.progress || 0}%</td>\n<td>${esc(t.description || '')}</td>\n</tr>`).join('');
+      document.getElementById('tasks').innerHTML = tasks || '<tr><td colspan="4" class="muted">暂无任务</td></tr>';
+
+      const commits = (d.commits || []).slice(0,8).map(c => `<div style="margin-bottom:4px"><code>${esc(c.hash)}</code> ${esc(c.message)}</div>`).join('');
+      document.getElementById('commits').innerHTML = commits || '暂无';
+
+      clearTimeout(window.__timer);
+      window.__timer = setTimeout(load, Math.max(3, d.refreshSeconds || 10) * 1000);
+    }
+
+    load().catch(err => {
+      document.getElementById('time').textContent = '加载失败: ' + err.message;
+      setTimeout(load, 5000);
+    });
+  </script>
+</body>
+</html>

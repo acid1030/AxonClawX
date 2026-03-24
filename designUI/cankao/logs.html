@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw · 日志</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1e1e1e;--sidebar-bg:#252525;--titlebar-bg:#2c2c2c;
+  --surface:#2f2f2f;--surface2:#383838;--surface3:#404040;
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.12);
+  --text-primary:#f0f0f0;--text-secondary:#a0a0a0;--text-tertiary:#606060;
+  --accent:#0A84FF;--green:#32D74B;--red:#FF453A;--yellow:#FFD60A;--orange:#FF9F0A;
+  --font:-apple-system,"SF Pro Text","Helvetica Neue",sans-serif;
+  --font-mono:"SF Mono","Fira Code","Cascadia Code",monospace;
+  --radius:10px;--radius-lg:14px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:var(--text-primary);font-size:13px;-webkit-font-smoothing:antialiased}
+
+.titlebar{height:38px;background:var(--titlebar-bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;user-select:none;position:relative;z-index:100;flex-shrink:0}
+.traffic-lights{display:flex;gap:8px;margin-right:16px}
+.tl{width:12px;height:12px;border-radius:50%;cursor:pointer}
+.tl-close{background:#FF5F57;border:1px solid rgba(0,0,0,.15)}
+.tl-min{background:#FEBC2E;border:1px solid rgba(0,0,0,.15)}
+.tl-max{background:#28C840;border:1px solid rgba(0,0,0,.15)}
+.titlebar-title{position:absolute;left:50%;transform:translateX(-50%);font-size:13px;font-weight:500;color:var(--text-secondary)}
+.titlebar-right{margin-left:auto;display:flex;gap:6px}
+.titlebar-btn{height:22px;padding:0 10px;border-radius:6px;background:transparent;border:none;color:var(--text-secondary);cursor:pointer;font-size:12px;font-family:var(--font);display:flex;align-items:center;gap:4px;transition:background .15s,color .15s}
+.titlebar-btn:hover{background:var(--surface2);color:var(--text-primary)}
+.titlebar-btn.active{background:rgba(50,215,75,.15);color:var(--green);border:1px solid rgba(50,215,75,.25)}
+
+.app{display:flex;height:calc(100vh - 38px)}
+.nav{width:52px;background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px;flex-shrink:0}
+.nav-item{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;color:var(--text-tertiary);transition:background .12s,color .12s;text-decoration:none}
+.nav-item:hover{background:var(--surface2);color:var(--text-secondary)}
+.nav-item.active{background:var(--surface3);color:var(--text-primary)}
+.nav-spacer{flex:1}
+.nav-sep{width:24px;height:1px;background:var(--border);margin:4px 0}
+
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* Toolbar */
+.toolbar{height:46px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:8px;flex-shrink:0;flex-wrap:wrap}
+.toolbar-group{display:flex;gap:4px;align-items:center}
+.toolbar-sep{width:1px;height:18px;background:var(--border2);margin:0 4px}
+.filter-btn{height:24px;padding:0 10px;border-radius:6px;border:1px solid transparent;background:transparent;color:var(--text-tertiary);font-size:12px;font-family:var(--font);cursor:pointer;transition:all .12s;display:flex;align-items:center;gap:4px}
+.filter-btn:hover{background:var(--surface2);color:var(--text-secondary)}
+.filter-btn.active{background:var(--surface3);color:var(--text-primary);border-color:var(--border2)}
+.filter-btn.error.active{background:rgba(255,69,58,.12);color:var(--red);border-color:rgba(255,69,58,.25)}
+.filter-btn.warn.active{background:rgba(255,159,10,.12);color:var(--orange);border-color:rgba(255,159,10,.25)}
+.filter-btn.info.active{background:rgba(10,132,255,.12);color:var(--accent);border-color:rgba(10,132,255,.25)}
+.filter-btn.debug.active{background:rgba(255,255,255,.05);color:var(--text-secondary);border-color:var(--border2)}
+.search-log{height:26px;background:var(--surface2);border:1px solid var(--border2);border-radius:7px;display:flex;align-items:center;padding:0 9px;gap:5px;min-width:180px}
+.search-log input{background:none;border:none;outline:none;font-size:12px;color:var(--text-primary);width:100%;font-family:var(--font)}
+.search-log input::placeholder{color:var(--text-tertiary)}
+.toolbar-spacer{flex:1}
+.agent-select{height:26px;background:var(--surface2);border:1px solid var(--border2);border-radius:7px;padding:0 8px;color:var(--text-secondary);font-size:12px;font-family:var(--font);outline:none;cursor:pointer;appearance:none;padding-right:22px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23606060'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 7px center}
+.badge-count{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;border-radius:8px;font-size:10px;padding:0 4px;font-weight:500}
+.badge-error{background:rgba(255,69,58,.2);color:var(--red)}
+.badge-warn{background:rgba(255,159,10,.2);color:var(--orange)}
+
+/* Log area */
+.log-area{flex:1;overflow-y:auto;font-family:var(--font-mono);font-size:12px;line-height:1.6;padding:6px 0;background:#1a1a1a}
+.log-area::-webkit-scrollbar{width:6px}
+.log-area::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:4px}
+
+.log-row{display:flex;align-items:baseline;gap:0;padding:1px 14px;transition:background .1s;cursor:default}
+.log-row:hover{background:rgba(255,255,255,.04)}
+.log-row.selected{background:rgba(10,132,255,.12)}
+.log-time{color:#505060;min-width:82px;flex-shrink:0;font-size:11px}
+.log-level{min-width:50px;flex-shrink:0;font-weight:500;font-size:11px}
+.log-level.ERROR{color:#FF453A}
+.log-level.WARN{color:#FF9F0A}
+.log-level.INFO{color:#0A84FF}
+.log-level.DEBUG{color:#606060}
+.log-agent{color:#5E9E6E;min-width:80px;flex-shrink:0;font-size:11px}
+.log-msg{color:#c8c8c8;flex:1;word-break:break-all}
+.log-msg .highlight{background:rgba(255,213,0,.2);color:#FFD60A;border-radius:2px;padding:0 2px}
+.log-row.ERROR-row{background:rgba(255,69,58,.04)}
+.log-row.ERROR-row:hover{background:rgba(255,69,58,.08)}
+
+/* Status bar */
+.statusbar{height:26px;border-top:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:14px;flex-shrink:0;background:var(--sidebar-bg)}
+.status-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-tertiary)}
+.status-dot{width:6px;height:6px;border-radius:50%}
+.status-dot.live{background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.status-spacer{flex:1}
+
+/* Detail drawer */
+.detail-drawer{height:0;border-top:1px solid var(--border);overflow:hidden;transition:height .2s;background:var(--surface);flex-shrink:0}
+.detail-drawer.open{height:180px}
+.drawer-header{display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid var(--border);gap:8px}
+.drawer-title{font-size:12px;font-weight:500;color:var(--text-secondary);flex:1}
+.drawer-close{background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:13px;width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center}
+.drawer-close:hover{background:var(--surface2);color:var(--text-primary)}
+.drawer-body{padding:10px 14px;overflow-y:auto;height:calc(180px - 36px);font-family:var(--font-mono);font-size:11.5px;color:var(--text-secondary);line-height:1.7}
+.drawer-body::-webkit-scrollbar{width:4px}
+.drawer-body::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:4px}
+
+@keyframes slideIn{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:translateX(0)}}
+.log-row{animation:slideIn .15s ease both}
+</style>
+</head>
+<body>
+<div class="titlebar">
+  <div class="traffic-lights">
+    <div class="tl tl-close"></div><div class="tl tl-min"></div><div class="tl tl-max"></div>
+  </div>
+  <span class="titlebar-title">OpenClaw · 日志监控</span>
+  <div class="titlebar-right">
+    <button class="titlebar-btn" onclick="clearLogs()">清空</button>
+    <button class="titlebar-btn" onclick="exportLogs()">导出</button>
+    <button class="titlebar-btn active" id="followBtn" onclick="toggleFollow()">
+      <span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block"></span>
+      实时跟踪
+    </button>
+  </div>
+</div>
+
+<div class="app">
+  <div class="nav">
+    <a class="nav-item" href="openclaw.html" title="对话">💬</a>
+    <a class="nav-item" href="agents.html" title="Agents">🤖</a>
+    <a class="nav-item" href="models.html" title="模型">🧠</a>
+    <a class="nav-item active" href="logs.html" title="日志">📋</a>
+    <div class="nav-spacer"></div>
+    <div class="nav-sep"></div>
+    <a class="nav-item" href="settings.html" title="设置">⚙</a>
+  </div>
+
+  <div class="main">
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <button class="filter-btn active" onclick="toggleFilter(this,'all')">全部</button>
+        <button class="filter-btn error" onclick="toggleFilter(this,'ERROR')">ERROR <span class="badge-count badge-error" id="errCount">3</span></button>
+        <button class="filter-btn warn" onclick="toggleFilter(this,'WARN')">WARN <span class="badge-count badge-warn" id="warnCount">5</span></button>
+        <button class="filter-btn info" onclick="toggleFilter(this,'INFO')">INFO</button>
+        <button class="filter-btn debug" onclick="toggleFilter(this,'DEBUG')">DEBUG</button>
+      </div>
+      <div class="toolbar-sep"></div>
+      <select class="agent-select" onchange="filterByAgent(this.value)">
+        <option value="all">所有 Agent</option>
+        <option value="main">main</option>
+        <option value="researcher">researcher</option>
+        <option value="coder">coder</option>
+        <option value="analyst">analyst</option>
+      </select>
+      <div class="toolbar-spacer"></div>
+      <div class="search-log">
+        <span style="font-size:11px;color:var(--text-tertiary)">🔍</span>
+        <input type="text" placeholder="过滤日志…" oninput="searchLogs(this.value)" id="logSearch">
+      </div>
+    </div>
+
+    <div class="log-area" id="logArea"></div>
+
+    <div class="detail-drawer" id="detailDrawer">
+      <div class="drawer-header">
+        <span class="drawer-title" id="drawerTitle">日志详情</span>
+        <button class="drawer-close" onclick="closeDrawer()">✕</button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
+    </div>
+
+    <div class="statusbar">
+      <div class="status-item">
+        <div class="status-dot live"></div>
+        <span>实时</span>
+      </div>
+      <div class="status-item"><span id="totalCount">0</span> 条日志</div>
+      <div class="status-item" style="color:var(--red)"><span id="errCountBar">0</span> 错误</div>
+      <div class="status-item" style="color:var(--orange)"><span id="warnCountBar">0</span> 警告</div>
+      <div class="status-spacer"></div>
+      <div class="status-item">日志路径: ~/.openclaw/logs/</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const LOGS = [
+  {time:'14:22:01.312', level:'INFO',  agent:'main',       msg:'Agent initialized. Auth profile not found.'},
+  {time:'14:22:01.318', level:'ERROR', agent:'main',       msg:'No API key found for provider "anthropic". Auth store: /Users/t/.openclaw/agents/main/agent/auth-profiles.json'},
+  {time:'14:22:01.320', level:'WARN',  agent:'main',       msg:'Agent failed before reply. Run: openclaw agents add main'},
+  {time:'14:22:05.001', level:'INFO',  agent:'researcher', msg:'Starting web_search tool: query="OpenAI GPT-4o pricing 2025"'},
+  {time:'14:22:05.884', level:'INFO',  agent:'researcher', msg:'web_search returned 10 results in 882ms'},
+  {time:'14:22:06.210', level:'DEBUG', agent:'researcher', msg:'fetch_url: https://openai.com/api/pricing — status 200, 12.4KB'},
+  {time:'14:22:07.001', level:'INFO',  agent:'researcher', msg:'Generating summary report from 3 sources'},
+  {time:'14:22:08.441', level:'INFO',  agent:'researcher', msg:'Response complete. tokens_in=3420 tokens_out=812 latency=2.44s'},
+  {time:'14:22:10.100', level:'INFO',  agent:'coder',      msg:'Code execution sandbox ready (Python 3.12, Node 20)'},
+  {time:'14:22:10.900', level:'DEBUG', agent:'coder',      msg:'Received task: "write async HTTP client with retry logic"'},
+  {time:'14:22:12.002', level:'DEBUG', agent:'coder',      msg:'Generated 84 lines of Python. Running tests…'},
+  {time:'14:22:12.441', level:'INFO',  agent:'coder',      msg:'All 6 unit tests passed. Coverage: 91%'},
+  {time:'14:22:13.100', level:'INFO',  agent:'coder',      msg:'Response complete. tokens_in=1840 tokens_out=2210 latency=3.2s'},
+  {time:'14:22:15.001', level:'WARN',  agent:'analyst',    msg:'DataFrame has 4 NaN values in column "revenue_q3" — auto-filled with mean'},
+  {time:'14:22:15.220', level:'WARN',  agent:'analyst',    msg:'Chart rendering: matplotlib backend fallback to Agg (no display)'},
+  {time:'14:22:15.882', level:'DEBUG', agent:'analyst',    msg:'Generated bar chart: 480x320px saved to /tmp/chart_abc123.png'},
+  {time:'14:22:16.001', level:'INFO',  agent:'analyst',    msg:'Analysis complete. tokens_in=6200 tokens_out=1040 latency=5.1s'},
+  {time:'14:22:18.001', level:'ERROR', agent:'coder',      msg:'Subprocess timeout after 10s: execution killed (pid 48291)'},
+  {time:'14:22:18.005', level:'WARN',  agent:'coder',      msg:'Retrying with reduced complexity…'},
+  {time:'14:22:20.441', level:'INFO',  agent:'coder',      msg:'Retry succeeded. tokens_in=1620 tokens_out=1880 latency=2.4s'},
+  {time:'14:22:22.001', level:'DEBUG', agent:'researcher', msg:'Cache hit: prompt hash a3f9b2c1 — skipping API call'},
+  {time:'14:22:22.100', level:'INFO',  agent:'researcher', msg:'Served from cache. latency=12ms'},
+  {time:'14:22:25.001', level:'ERROR', agent:'main',       msg:'Connection timeout: api.anthropic.com — retrying in 2s (attempt 1/3)'},
+  {time:'14:22:27.001', level:'INFO',  agent:'main',       msg:'Connection restored. Retry succeeded.'},
+  {time:'14:22:30.001', level:'WARN',  agent:'analyst',    msg:'Rate limit approaching: 85% of hourly token quota used'},
+];
+
+let following = true;
+let activeFilter = 'all';
+let activeAgent = 'all';
+let searchQuery = '';
+
+function renderLogs() {
+  const area = document.getElementById('logArea');
+  const filtered = LOGS.filter(l => {
+    if (activeFilter !== 'all' && l.level !== activeFilter) return false;
+    if (activeAgent !== 'all' && l.agent !== activeAgent) return false;
+    if (searchQuery && !l.msg.toLowerCase().includes(searchQuery) && !l.agent.includes(searchQuery)) return false;
+    return true;
+  });
+  area.innerHTML = filtered.map((l,i) => {
+    let msg = l.msg;
+    if (searchQuery && searchQuery.length > 1) {
+      const re = new RegExp(searchQuery.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi');
+      msg = msg.replace(re, m => `<span class="highlight">${m}</span>`);
+    }
+    return `<div class="log-row ${l.level}-row" onclick="showDetail(${LOGS.indexOf(l)})">
+      <span class="log-time">${l.time}</span>
+      <span class="log-level ${l.level}">[${l.level.padEnd(5)}]</span>
+      <span class="log-agent">[${l.agent}]&nbsp;</span>
+      <span class="log-msg">${msg}</span>
+    </div>`;
+  }).join('');
+  const errs = LOGS.filter(l=>l.level==='ERROR').length;
+  const warns = LOGS.filter(l=>l.level==='WARN').length;
+  document.getElementById('errCount').textContent = errs;
+  document.getElementById('warnCount').textContent = warns;
+  document.getElementById('errCountBar').textContent = errs;
+  document.getElementById('warnCountBar').textContent = warns;
+  document.getElementById('totalCount').textContent = LOGS.length;
+  if (following) area.scrollTop = area.scrollHeight;
+}
+
+function toggleFilter(btn, level) {
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  activeFilter = level;
+  renderLogs();
+}
+function filterByAgent(val) { activeAgent = val; renderLogs(); }
+function searchLogs(q) { searchQuery = q.toLowerCase(); renderLogs(); }
+function toggleFollow() {
+  following = !following;
+  const btn = document.getElementById('followBtn');
+  btn.classList.toggle('active', following);
+}
+function clearLogs() { LOGS.length = 0; renderLogs(); closeDrawer(); }
+function exportLogs() {
+  const text = LOGS.map(l=>`${l.time} [${l.level}] [${l.agent}] ${l.msg}`).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
+  a.download = 'openclaw-logs.txt'; a.click();
+}
+
+function showDetail(idx) {
+  const l = LOGS[idx];
+  document.getElementById('drawerTitle').textContent = `[${l.level}] ${l.time} — ${l.agent}`;
+  document.getElementById('drawerBody').innerHTML = `
+    <div style="color:var(--text-secondary);margin-bottom:6px">${l.msg}</div>
+    <div style="color:var(--text-tertiary);font-size:11px">
+      时间戳: ${l.time} &nbsp;|&nbsp; 级别: ${l.level} &nbsp;|&nbsp; Agent: ${l.agent}<br>
+      日志行: ${idx+1} / ${LOGS.length}
+    </div>
+  `;
+  document.getElementById('detailDrawer').classList.add('open');
+}
+function closeDrawer() { document.getElementById('detailDrawer').classList.remove('open'); }
+
+renderLogs();
+
+// Simulate new logs
+const newLogs = [
+  {level:'INFO',  agent:'coder',      msg:'New task received: "optimize database query"'},
+  {level:'DEBUG', agent:'researcher', msg:'Tool call: web_search("latest Claude API docs")'},
+  {level:'WARN',  agent:'main',       msg:'Token usage: 78% of context window filled'},
+  {level:'INFO',  agent:'analyst',    msg:'Plot generated: scatter_plot_v2.png (640x480)'},
+  {level:'DEBUG', agent:'coder',      msg:'Linting 120 lines… 0 errors, 2 warnings'},
+];
+let ni = 0;
+setInterval(() => {
+  if (!following) return;
+  const base = new Date();
+  const t = `${String(base.getHours()).padStart(2,'0')}:${String(base.getMinutes()).padStart(2,'0')}:${String(base.getSeconds()).padStart(2,'0')}.${String(Math.floor(Math.random()*999)).padStart(3,'0')}`;
+  const l = {...newLogs[ni % newLogs.length], time: t};
+  LOGS.push(l); ni++;
+  renderLogs();
+}, 3000);
+</script>
+</body>
+</html>

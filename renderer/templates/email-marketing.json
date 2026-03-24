@@ -1,0 +1,64 @@
+{
+  "id": "email-marketing",
+  "name": "邮件营销",
+  "description": "营销邮件模板",
+  "platform": "email",
+  "icon": "📧",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "emailType",
+      "label": "邮件类型",
+      "type": "select",
+      "required": true,
+      "options": ["新品发布", "促销活动", "会员关怀", "内容推送", "活动邀请"]
+    },
+    {
+      "name": "subject",
+      "label": "邮件主题",
+      "type": "text",
+      "required": true,
+      "placeholder": "吸引打开的主题行"
+    },
+    {
+      "name": "recipient",
+      "label": "收件人群",
+      "type": "text",
+      "placeholder": "例如：新注册用户/VIP 会员"
+    },
+    {
+      "name": "mainOffer",
+      "label": "核心优惠/内容",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "主要推广内容"
+    },
+    {
+      "name": "cta",
+      "label": "行动号召",
+      "type": "text",
+      "required": true,
+      "placeholder": "例如：立即查看/限时抢购"
+    },
+    {
+      "name": "urgency",
+      "label": "紧迫感元素",
+      "type": "text",
+      "placeholder": "例如：限时 48 小时/仅剩 100 件"
+    }
+  ],
+  "structure": {
+    "sections": [
+      "主题行",
+      "问候语",
+      "核心价值",
+      "优惠详情",
+      "行动按钮",
+      "落款"
+    ]
+  },
+  "outputFormat": "html",
+  "tags": ["邮件", "营销", "EDM"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AxonClaw 设计系统</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #000000;
+      --bg-secondary: #1c1c1e;
+      --bg-card: #2c2c2e;
+      --bg-elevated: #3a3a3c;
+      --border: #3a3a3c;
+      --border-light: #48484a;
+      --text-primary: #ffffff;
+      --text-secondary: #8e8e93;
+      --text-tertiary: #636366;
+      --accent: #0a84ff;
+      --accent-hover: #0070e0;
+      --accent-green: #30d158;
+      --accent-red: #ff453a;
+      --accent-orange: #ff9f0a;
+      --accent-purple: #bf5af2;
+      --brand: #6366f1;
+      --radius-sm: 6px;
+      --radius: 10px;
+      --radius-lg: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg-primary); color: var(--text-primary); padding: 40px; line-height: 1.6; }
+    h1 { font-size: 32px; margin-bottom: 8px; }
+    h2 { font-size: 20px; margin: 32px 0 16px; color: var(--text-secondary); }
+    p { color: var(--text-secondary); margin-bottom: 16px; }
+    .section { margin-bottom: 48px; }
+    .color-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px; margin-top: 16px; }
+    .color-swatch { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
+    .color-swatch > div:first-child { height: 80px; }
+    .color-swatch > div:last-child { padding: 8px 12px; font-size: 12px; background: var(--bg-card); }
+    .component-demo { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin: 16px 0; }
+    .component-demo h3 { font-size: 14px; color: var(--text-tertiary); margin-bottom: 12px; }
+    .flex { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .health-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .health-dot.ok { background: var(--accent-green); }
+    .health-dot.warn { background: var(--accent-orange); }
+    .health-dot.err { background: var(--accent-red); }
+    .btn { padding: 10px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); cursor: pointer; font-size: 14px; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); }
+    .badge { font-size: 11px; padding: 4px 10px; border-radius: 999px; background: var(--bg-elevated); color: var(--text-secondary); }
+    .badge.success { background: rgba(48,209,88,0.15); color: var(--accent-green); }
+    .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; width: 200px; }
+    .stat-card .label { font-size: 12px; color: var(--text-secondary); }
+    .stat-card .value { font-size: 24px; font-weight: 700; }
+    code { background: var(--bg-elevated); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>AxonClaw 设计系统</h1>
+  <p>基于 DESIGN_GUIDELINES.md，Mac 风格，深色模式优先</p>
+
+  <div class="section">
+    <h2>颜色</h2>
+    <div class="color-grid">
+      <div class="color-swatch">
+        <div style="background:#000000"></div>
+        <div>--bg-primary #000</div>
+      </div>
+      <div class="color-swatch">
+        <div style="background:#1c1c1e"></div>
+        <div>--bg-secondary</div>
+      </div>
+      <div class="color-swatch">
+        <div style="background:#2c2c2e"></div>
+        <div>--bg-card</div>
+      </div>
+      <div class="color-swatch">
+        <div style="background:#0a84ff"></div>
+        <div>--accent</div>
+      </div>
+      <div class="color-swatch">
+        <div style="background:#30d158"></div>
+        <div>--accent-green</div>
+      </div>
+      <div class="color-swatch">
+        <div style="background:#ff453a"></div>
+        <div>--accent-red</div>
+      </div>
+      <div class="color-swatch">
+        <div style="background:#ff9f0a"></div>
+        <div>--accent-orange</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>HealthDot 健康指示器</h2>
+    <p>来自 ClawDeckX，用于 Gateway、Channel、诊断项状态</p>
+    <div class="component-demo">
+      <h3>状态变体</h3>
+      <div class="flex">
+        <div class="flex" style="gap:16px">
+          <div class="health-dot ok"></div>
+          <span>正常</span>
+        </div>
+        <div class="flex" style="gap:16px">
+          <div class="health-dot warn"></div>
+          <span>警告</span>
+        </div>
+        <div class="flex" style="gap:16px">
+          <div class="health-dot err"></div>
+          <span>错误</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>StatCard 统计卡片</h2>
+    <p>来自 ClawDeckX，Dashboard 数据展示</p>
+    <div class="component-demo">
+      <h3>示例</h3>
+      <div class="flex">
+        <div class="stat-card">
+          <div class="label">整体进度</div>
+          <div class="value">58%</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">活跃 Agent</div>
+          <div class="value">6/24</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>按钮</h2>
+    <div class="component-demo">
+      <div class="flex">
+        <button class="btn">次要</button>
+        <button class="btn btn-primary">主要</button>
+        <span class="badge">Badge</span>
+        <span class="badge success">成功</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>图标映射 (lucide-react)</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      <tr style="border-bottom:1px solid var(--border)">
+        <th style="text-align:left;padding:12px;color:var(--text-tertiary)">功能</th>
+        <th style="text-align:left;padding:12px;color:var(--text-tertiary)">组件</th>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)"><td style="padding:12px">仪表板</td><td style="padding:12px"><code>BarChart3</code></td></tr>
+      <tr style="border-bottom:1px solid var(--border)"><td style="padding:12px">对话</td><td style="padding:12px"><code>MessageCircle</code></td></tr>
+      <tr style="border-bottom:1px solid var(--border)"><td style="padding:12px">Agent</td><td style="padding:12px"><code>Bot</code></td></tr>
+      <tr style="border-bottom:1px solid var(--border)"><td style="padding:12px">Channel</td><td style="padding:12px"><code>Radio</code></td></tr>
+      <tr style="border-bottom:1px solid var(--border)"><td style="padding:12px">记忆</td><td style="padding:12px"><code>Brain</code></td></tr>
+      <tr style="border-bottom:1px solid var(--border)"><td style="padding:12px">技能</td><td style="padding:12px"><code>Zap</code></td></tr>
+      <tr style="border-bottom:1px solid var(--border)"><td style="padding:12px">诊断</td><td style="padding:12px"><code>Wrench</code></td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>间距 (4px 网格)</h2>
+    <p>4px · 8px · 12px · 16px · 24px · 32px</p>
+  </div>
+
+  <div class="section">
+    <h2>圆角</h2>
+    <p>按钮 6px · 卡片 10-12px · 模态框 14px</p>
+  </div>
+
+  <p style="margin-top:48px;color:var(--text-tertiary);font-size:12px">
+    参考：<a href="axonclaw-design.html" style="color:var(--accent)">主设计稿</a> · 
+    <a href="REQUIREMENTS.md" style="color:var(--accent)">REQUIREMENTS.md</a> · 
+    docs/DESIGN_GUIDELINES.md
+  </p>
+</body>
+</html>

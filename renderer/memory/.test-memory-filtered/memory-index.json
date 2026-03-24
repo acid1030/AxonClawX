@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "updatedAt": 1773378456448,
+  "entries": [
+    [
+      "file_peplvy",
+      {
+        "id": "file_peplvy",
+        "filePath": "/Users/nike/.openclaw/workspace/src/renderer/memory/.test-memory/test.txt",
+        "content": "txt",
+        "fileType": "txt",
+        "fileSize": 11,
+        "fileModifiedAt": 1773378456448.8652,
+        "createdAt": 1773378456448,
+        "lastAccessedAt": 1773378456448,
+        "tags": []
+      }
+    ]
+  ]
+}

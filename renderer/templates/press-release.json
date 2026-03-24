@@ -1,0 +1,64 @@
+{
+  "id": "press-release",
+  "name": "新闻稿",
+  "description": "公关新闻稿模板",
+  "platform": "news",
+  "icon": "📰",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "headline",
+      "label": "标题",
+      "type": "text",
+      "required": true,
+      "placeholder": "新闻标题"
+    },
+    {
+      "name": "dateline",
+      "label": "电头",
+      "type": "text",
+      "placeholder": "例如：北京，2024 年 3 月 12 日"
+    },
+    {
+      "name": "leadParagraph",
+      "label": "导语",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "5W1H 核心信息"
+    },
+    {
+      "name": "bodyContent",
+      "label": "正文",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "详细内容、引用、背景"
+    },
+    {
+      "name": "boilerplate",
+      "label": "公司简介",
+      "type": "textarea",
+      "placeholder": "公司/组织介绍"
+    },
+    {
+      "name": "mediaContact",
+      "label": "媒体联系人",
+      "type": "text",
+      "placeholder": "姓名、邮箱、电话"
+    }
+  ],
+  "structure": {
+    "sections": [
+      "标题",
+      "电头",
+      "导语",
+      "正文 (2-3 段)",
+      "引用",
+      "背景信息",
+      "媒体联系"
+    ]
+  },
+  "outputFormat": "markdown",
+  "tags": ["新闻", "公关", "媒体"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}

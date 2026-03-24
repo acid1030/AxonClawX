@@ -1,0 +1,77 @@
+{
+  "id": "product-review",
+  "name": "产品评测",
+  "description": "产品评测/测评模板",
+  "platform": "review",
+  "icon": "⭐",
+  "version": "1.0.0",
+  "fields": [
+    {
+      "name": "productName",
+      "label": "产品名称",
+      "type": "text",
+      "required": true,
+      "placeholder": "评测的产品"
+    },
+    {
+      "name": "category",
+      "label": "产品类别",
+      "type": "text",
+      "placeholder": "例如：智能手机/护肤品"
+    },
+    {
+      "name": "priceRange",
+      "label": "价格区间",
+      "type": "text",
+      "placeholder": "例如：¥2999-3999"
+    },
+    {
+      "name": "testDuration",
+      "label": "使用时长",
+      "type": "text",
+      "placeholder": "例如：深度使用 2 周"
+    },
+    {
+      "name": "pros",
+      "label": "优点",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "产品优点列表"
+    },
+    {
+      "name": "cons",
+      "label": "缺点",
+      "type": "textarea",
+      "placeholder": "产品缺点/不足"
+    },
+    {
+      "name": "verdict",
+      "label": "总结评价",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "最终购买建议"
+    },
+    {
+      "name": "rating",
+      "label": "评分",
+      "type": "select",
+      "required": true,
+      "options": ["★★★★★", "★★★★☆", "★★★☆☆", "★★☆☆☆", "★☆☆☆☆"]
+    }
+  ],
+  "structure": {
+    "sections": [
+      "产品概述",
+      "外观/设计",
+      "性能表现",
+      "使用体验",
+      "优缺点总结",
+      "购买建议",
+      "评分"
+    ]
+  },
+  "outputFormat": "markdown",
+  "tags": ["评测", "测评", "产品"],
+  "createdAt": "2024-03-12T00:00:00.000Z",
+  "updatedAt": "2024-03-12T00:00:00.000Z"
+}
