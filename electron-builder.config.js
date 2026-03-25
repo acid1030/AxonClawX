@@ -26,7 +26,7 @@ const config = {
   // macOS
   mac: {
     category: 'public.app-category.productivity',
-    icon: 'build/icon.icns',
+    icon: 'designUI/image/icon.icns',
     target: [
       {
         target: 'dmg',

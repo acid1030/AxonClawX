@@ -1070,7 +1070,7 @@ const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({ embedded, standalone,
             <span className="text-orange-400">{t('diagnostics.risk.high')} <span className="font-mono">{filteredIssues.filter((i) => i.risk === 'high').length}</span></span>
             <span className="text-amber-400">{t('diagnostics.risk.medium')} <span className="font-mono">{filteredIssues.filter((i) => i.risk === 'medium').length}</span></span>
           </div>
-          <div className="relative pl-4 border-l border-dashed border-white/20 space-y-3 max-h-64 overflow-y-auto">
+          <div className="relative pl-4 border-l border-dashed border-white/20 space-y-3">
             {filteredIssues.slice(0, 12).map((issue) => (
               <div
                 key={issue.id}
@@ -1238,7 +1238,7 @@ const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({ embedded, standalone,
               <option value="low">{t('diagnostics.risk.low')}</option>
             </select>
           </div>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
+          <div className="space-y-2">
             {filteredIssues.slice(0, 12).map((issue) => (
               <div
                 key={issue.id}
@@ -1328,19 +1328,20 @@ const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({ embedded, standalone,
 
   if (standalone) {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-[#0f172a] overflow-hidden">
+      <div className="flex flex-col flex-1 h-full min-h-0 w-full bg-[#0f172a] overflow-hidden">
         <PageHeader
           title={t('diagnostics.title')}
           subtitle={t('diagnostics.subtitle')}
           dividerClassName={scoreBarClass}
           dividerUnderSubtitle
+          sticky={false}
           onRefresh={() => void fetchAll()}
           refreshing={summaryLoading}
           refreshLabel={t('diagnostics.refreshSummary')}
           actions={headerActions}
         />
         <div className="px-4 shrink-0 pt-4">{tabRow}</div>
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4">
+        <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden custom-scrollbar px-4 pb-4">
           {activeTab === 'diagnose' && diagnoseBody}
           {activeTab === 'testing' && testingBody}
         </div>
@@ -1359,16 +1360,16 @@ const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({ embedded, standalone,
   }
 
   return (
-    <div className={cn('flex flex-col bg-[#0f172a]', embedded ? 'flex-1 min-h-0 overflow-hidden' : 'h-full min-h-0 overflow-hidden')}>
+    <div className={cn('flex flex-col h-full w-full bg-[#0f172a]', embedded ? 'flex-1 min-h-0 overflow-hidden' : 'h-full min-h-0 overflow-hidden')}>
       {!embedded && (
-        <div className="sticky top-0 z-10 shrink-0 bg-[#0f172a] pt-3 pb-0 px-4">
+        <div className="z-10 shrink-0 bg-[#0f172a] pt-3 pb-0 px-4">
           <h2 className="text-base font-bold text-foreground">{t('diagnostics.title')}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">{t('diagnostics.subtitle')}</p>
           <div className={cn('h-[3px] w-full rounded-full transition-all duration-700 mt-2 mb-2', scoreBarClass)} />
         </div>
       )}
       <div className={cn('shrink-0 px-4 pt-4')}>{tabRow}</div>
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4">
+      <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden custom-scrollbar px-4 pb-4">
         <div className="flex justify-end py-2">{headerActions}</div>
         {activeTab === 'diagnose' && diagnoseBody}
         {activeTab === 'testing' && testingBody}

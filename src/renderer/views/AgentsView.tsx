@@ -65,7 +65,6 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 function formatSchedule(schedule: unknown): string {
-  const isZh = /^(zh|cn)/i.test(i18n.language || '');
   if (typeof schedule === 'string') return schedule;
   if (schedule && typeof schedule === 'object') {
     const s = schedule as { kind?: string; expr?: string; everyMs?: number; at?: string };
@@ -73,18 +72,15 @@ function formatSchedule(schedule: unknown): string {
     if (s.kind === 'every' && s.everyMs) {
       const ms = s.everyMs;
       if (ms < 60_000) {
-        const n = Math.round(ms / 1000);
-        return isZh ? `每 ${n} 秒` : `Every ${n} seconds`;
+        return i18n.t('agents.schedule.everySeconds', { count: Math.round(ms / 1000) });
       }
       if (ms < 3_600_000) {
-        const n = Math.round(ms / 60_000);
-        return isZh ? `每 ${n} 分钟` : `Every ${n} minutes`;
+        return i18n.t('agents.schedule.everyMinutes', { count: Math.round(ms / 60_000) });
       }
       if (ms < 86_400_000) {
-        const n = Math.round(ms / 3_600_000);
-        return isZh ? `每 ${n} 小时` : `Every ${n} hours`;
+        return i18n.t('agents.schedule.everyHours', { count: Math.round(ms / 3_600_000) });
       }
-      return `Every ${Math.round(ms / 86_400_000)}d`;
+      return i18n.t('agents.schedule.everyDays', { count: Math.round(ms / 86_400_000) });
     }
     if (s.kind === 'at' && s.at) return s.at;
   }

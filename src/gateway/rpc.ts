@@ -5,9 +5,57 @@
 
 import { getResolvedGatewayPort, resolveGatewayPort, setResolvedGatewayPort } from './port';
 import { GATEWAY_TOKEN } from './constants';
+import { getSetting, isInitialized } from '../database';
+
+const GW_MODE_KEY = 'gateway.connection.mode';
+const GW_REMOTE_PROTOCOL_KEY = 'gateway.remote.protocol';
+const GW_REMOTE_HOST_KEY = 'gateway.remote.host';
+const GW_REMOTE_PORT_KEY = 'gateway.remote.port';
+const GW_REMOTE_TOKEN_KEY = 'gateway.remote.token';
+
+type GatewayRuntimeConfig = {
+  mode: 'local' | 'remote';
+  protocol: 'ws' | 'wss';
+  host: string;
+  port: number;
+  token: string;
+};
+
+function getGatewayRuntimeConfig(): GatewayRuntimeConfig {
+  const defaults: GatewayRuntimeConfig = {
+    mode: 'local',
+    protocol: 'ws',
+    host: '127.0.0.1',
+    port: getResolvedGatewayPort(),
+    token: GATEWAY_TOKEN,
+  };
+
+  try {
+    if (!isInitialized()) return defaults;
+    const modeRaw = (getSetting(GW_MODE_KEY) || 'local').toLowerCase();
+    if (modeRaw !== 'remote') return defaults;
+
+    const protocolRaw = (getSetting(GW_REMOTE_PROTOCOL_KEY) || 'ws').toLowerCase();
+    const protocol: 'ws' | 'wss' = protocolRaw === 'wss' ? 'wss' : 'ws';
+    const host = (getSetting(GW_REMOTE_HOST_KEY) || '').trim();
+    const portRaw = parseInt(getSetting(GW_REMOTE_PORT_KEY) || '', 10);
+    const token = (getSetting(GW_REMOTE_TOKEN_KEY) || '').trim() || GATEWAY_TOKEN;
+    const port = Number.isFinite(portRaw) && portRaw > 0 && portRaw <= 65535 ? portRaw : 18789;
+
+    if (!host) return defaults;
+    return { mode: 'remote', protocol, host, port, token };
+  } catch {
+    return defaults;
+  }
+}
 
 function getGatewayWsUrl(): string {
-  return `ws://127.0.0.1:${getResolvedGatewayPort()}/ws`;
+  const cfg = getGatewayRuntimeConfig();
+  return `${cfg.protocol}://${cfg.host}:${cfg.port}/ws`;
+}
+
+function getGatewayToken(): string {
+  return getGatewayRuntimeConfig().token;
 }
 
 /** 是否为连接类错误（可尝试重新探测端口后重试） */
@@ -86,7 +134,7 @@ export async function callGatewayRpc(
                   platform: process.platform,
                   mode: 'ui',
                 },
-                auth: { token: GATEWAY_TOKEN },
+                auth: { token: getGatewayToken() },
                 role: 'operator',
                 scopes: ['operator.admin'],
               },
@@ -163,6 +211,10 @@ export async function callGatewayRpcWithRetry(
   let result = await callGatewayRpc(method, params, timeoutMs);
   if (result.ok) return result;
   if (!isConnectionError(result.error)) return result;
+
+  if (getGatewayRuntimeConfig().mode === 'remote') {
+    return result;
+  }
 
   const r = await resolveGatewayPort();
   if (r.success && r.port) {

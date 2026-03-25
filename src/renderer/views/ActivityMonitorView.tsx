@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { PageHeader } from '@/components/common/PageHeader';
 import { cn } from '@/lib/utils';
@@ -37,75 +38,83 @@ function fmtRelativeTime(ts: number | undefined, _labels?: Record<string, string
   return new Date(ts).toLocaleDateString(i18n.language === 'zh' ? 'zh-CN' : 'en-US');
 }
 
-const labels: Record<string, string> = {
-  title: i18n.t('views.activityMonitor.title', { defaultValue: 'Activity Monitor' }),
-  activityHelp: i18n.t('views.activityMonitor.activityHelp', { defaultValue: 'Session list and usage analytics' }),
-  sessions: i18n.t('views.activityMonitor.sessions', { defaultValue: 'Sessions' }),
-  search: i18n.t('views.activityMonitor.search', { defaultValue: 'Search…' }),
-  all: i18n.t('views.activityMonitor.all', { defaultValue: 'All' }),
-  sortUpdated: i18n.t('views.activityMonitor.sortUpdated', { defaultValue: 'Updated Time' }),
-  sortTokens: i18n.t('views.activityMonitor.sortTokens', { defaultValue: 'Token Count' }),
-  sortName: i18n.t('views.activityMonitor.sortName', { defaultValue: 'Name' }),
-  refresh: i18n.t('views.activityMonitor.refresh', { defaultValue: 'Refresh' }),
-  exportCsv: i18n.t('views.activityMonitor.exportCsv', { defaultValue: 'Export CSV' }),
-  batchMode: i18n.t('views.activityMonitor.batchMode', { defaultValue: 'Batch' }),
-  lastRefresh: i18n.t('views.activityMonitor.lastRefresh', { defaultValue: 'Last refresh' }),
-  reset: i18n.t('views.activityMonitor.reset', { defaultValue: 'Reset' }),
-  confirmReset: i18n.t('views.activityMonitor.confirmReset', { defaultValue: 'Reset this session?' }),
-  resetOk: i18n.t('views.activityMonitor.resetOk', { defaultValue: 'Reset done' }),
-  delete: i18n.t('views.activityMonitor.delete', { defaultValue: 'Delete' }),
-  confirmDelete: i18n.t('views.activityMonitor.confirmDelete', { defaultValue: 'Delete this session?' }),
-  confirmDeleteMain: i18n.t('views.activityMonitor.confirmDeleteMain', { defaultValue: 'Delete main session?' }),
-  deleteOk: i18n.t('views.activityMonitor.deleteOk', { defaultValue: 'Deleted' }),
-  compact: i18n.t('views.activityMonitor.compact', { defaultValue: 'Compact' }),
-  confirmCompact: i18n.t('views.activityMonitor.confirmCompact', { defaultValue: 'Compact this session?' }),
-  compactOk: i18n.t('views.activityMonitor.compactOk', { defaultValue: 'Compacted' }),
-  batchDelete: i18n.t('views.activityMonitor.batchDelete', { defaultValue: 'Batch delete' }),
-  confirmBatchDelete: i18n.t('views.activityMonitor.confirmBatchDelete', { defaultValue: 'Confirm delete' }),
-  batchReset: i18n.t('views.activityMonitor.batchReset', { defaultValue: 'Batch reset' }),
-  confirmBatchReset: i18n.t('views.activityMonitor.confirmBatchReset', { defaultValue: 'Confirm reset' }),
-  selected: i18n.t('views.activityMonitor.selected', { defaultValue: 'selected' }),
-  noSessions: i18n.t('views.activityMonitor.noSessions', { defaultValue: 'No sessions' }),
-  noSessionsHint: i18n.t('views.activityMonitor.noSessionsHint', { defaultValue: 'Sessions will appear here after you start chatting via Gateway.' }),
-  step1: i18n.t('views.activityMonitor.step1', { defaultValue: 'Configure Gateway' }),
-  step1Desc: i18n.t('views.activityMonitor.step1Desc', { defaultValue: 'Connect OpenClaw Gateway' }),
-  step2: i18n.t('views.activityMonitor.step2', { defaultValue: 'Start Chatting' }),
-  step2Desc: i18n.t('views.activityMonitor.step2Desc', { defaultValue: 'Send a message in chat' }),
-  step3: i18n.t('views.activityMonitor.step3', { defaultValue: 'Monitor Here' }),
-  step3Desc: i18n.t('views.activityMonitor.step3Desc', { defaultValue: 'Sessions will show up automatically' }),
-  groupToday: i18n.t('views.activityMonitor.groupToday', { defaultValue: 'Today' }),
-  groupYesterday: i18n.t('views.activityMonitor.groupYesterday', { defaultValue: 'Yesterday' }),
-  groupThisWeek: i18n.t('views.activityMonitor.groupThisWeek', { defaultValue: 'This Week' }),
-  groupEarlier: i18n.t('views.activityMonitor.groupEarlier', { defaultValue: 'Earlier' }),
-  direct: i18n.t('views.activityMonitor.direct', { defaultValue: 'Direct' }),
-  group: i18n.t('views.activityMonitor.group', { defaultValue: 'Group' }),
-  global: i18n.t('views.activityMonitor.global', { defaultValue: 'Global' }),
-  unknown: i18n.t('views.activityMonitor.unknown', { defaultValue: 'Unknown' }),
-  totalTokens: i18n.t('views.activityMonitor.totalTokens', { defaultValue: 'Total Tokens' }),
-  input: i18n.t('views.activityMonitor.input', { defaultValue: 'Input' }),
-  output: i18n.t('views.activityMonitor.output', { defaultValue: 'Output' }),
-  active24h: i18n.t('views.activityMonitor.active24h', { defaultValue: '24h Active' }),
-  activity7d: i18n.t('views.activityMonitor.activity7d', { defaultValue: '7d Activity' }),
-  messages: i18n.t('views.activityMonitor.messages', { defaultValue: 'Messages' }),
-  userMsg: i18n.t('views.activityMonitor.userMsg', { defaultValue: 'User' }),
-  assistantMsg: i18n.t('views.activityMonitor.assistantMsg', { defaultValue: 'Assistant' }),
-  toolCallsLabel: i18n.t('views.activityMonitor.toolCallsLabel', { defaultValue: 'Tools' }),
-  errors: i18n.t('views.activityMonitor.errors', { defaultValue: 'Errors' }),
-  channels: i18n.t('views.activityMonitor.channels', { defaultValue: 'Channels' }),
-  costTrend: i18n.t('views.activityMonitor.costTrend', { defaultValue: '7d Cost' }),
-  modelDist: i18n.t('views.activityMonitor.modelDist', { defaultValue: 'Models' }),
-  aborted: i18n.t('views.activityMonitor.aborted', { defaultValue: 'Aborted' }),
-  tokens: 'Token',
-  metadata: i18n.t('views.activityMonitor.metadata', { defaultValue: 'Details' }),
-  openChat: i18n.t('views.activityMonitor.openChat', { defaultValue: 'Open Chat' }),
-  latencyStats: i18n.t('views.activityMonitor.latencyStats', { defaultValue: 'Latency' }),
-};
-
 interface ActivityMonitorViewProps {
   onNavigateTo?: (viewId: string) => void;
 }
 
 const ActivityMonitorView: React.FC<ActivityMonitorViewProps> = ({ onNavigateTo }) => {
+  const { t, i18n: i18nInst } = useTranslation();
+  const isZh = i18nInst.language?.toLowerCase?.().startsWith('zh');
+  const labels: Record<string, string> = useMemo(
+    () => ({
+      title: t('views.activityMonitor.title', { defaultValue: isZh ? '活动监控' : 'Activity Monitor' }),
+      activityHelp: t('views.activityMonitor.activityHelp', { defaultValue: isZh ? '会话列表与用量分析' : 'Session list and usage analytics' }),
+      sessions: t('views.activityMonitor.sessions', { defaultValue: isZh ? '会话' : 'Sessions' }),
+      search: t('views.activityMonitor.search', { defaultValue: isZh ? '搜索…' : 'Search…' }),
+      all: t('views.activityMonitor.all', { defaultValue: isZh ? '全部' : 'All' }),
+      sortUpdated: t('views.activityMonitor.sortUpdated', { defaultValue: isZh ? '更新时间' : 'Updated Time' }),
+      sortTokens: t('views.activityMonitor.sortTokens', { defaultValue: isZh ? 'Token 数' : 'Token Count' }),
+      sortName: t('views.activityMonitor.sortName', { defaultValue: isZh ? '名称' : 'Name' }),
+      refresh: t('views.activityMonitor.refresh', { defaultValue: isZh ? '刷新' : 'Refresh' }),
+      exportCsv: t('views.activityMonitor.exportCsv', { defaultValue: isZh ? '导出 CSV' : 'Export CSV' }),
+      batchMode: t('views.activityMonitor.batchMode', { defaultValue: isZh ? '批量' : 'Batch' }),
+      lastRefresh: t('views.activityMonitor.lastRefresh', { defaultValue: isZh ? '上次刷新' : 'Last refresh' }),
+      reset: t('views.activityMonitor.reset', { defaultValue: isZh ? '重置' : 'Reset' }),
+      confirmReset: t('views.activityMonitor.confirmReset', { defaultValue: isZh ? '确认重置此会话？' : 'Reset this session?' }),
+      resetOk: t('views.activityMonitor.resetOk', { defaultValue: isZh ? '重置完成' : 'Reset done' }),
+      delete: t('views.activityMonitor.delete', { defaultValue: isZh ? '删除' : 'Delete' }),
+      confirmDelete: t('views.activityMonitor.confirmDelete', { defaultValue: isZh ? '确认删除此会话？' : 'Delete this session?' }),
+      confirmDeleteMain: t('views.activityMonitor.confirmDeleteMain', { defaultValue: isZh ? '确认删除主会话？' : 'Delete main session?' }),
+      deleteOk: t('views.activityMonitor.deleteOk', { defaultValue: isZh ? '已删除' : 'Deleted' }),
+      compact: t('views.activityMonitor.compact', { defaultValue: isZh ? '压缩' : 'Compact' }),
+      confirmCompact: t('views.activityMonitor.confirmCompact', { defaultValue: isZh ? '确认压缩此会话？' : 'Compact this session?' }),
+      compactOk: t('views.activityMonitor.compactOk', { defaultValue: isZh ? '压缩完成' : 'Compacted' }),
+      batchDelete: t('views.activityMonitor.batchDelete', { defaultValue: isZh ? '批量删除' : 'Batch delete' }),
+      confirmBatchDelete: t('views.activityMonitor.confirmBatchDelete', { defaultValue: isZh ? '确认批量删除' : 'Confirm delete' }),
+      batchReset: t('views.activityMonitor.batchReset', { defaultValue: isZh ? '批量重置' : 'Batch reset' }),
+      confirmBatchReset: t('views.activityMonitor.confirmBatchReset', { defaultValue: isZh ? '确认批量重置' : 'Confirm reset' }),
+      selected: t('views.activityMonitor.selected', { defaultValue: isZh ? '已选' : 'selected' }),
+      noSessions: t('views.activityMonitor.noSessions', { defaultValue: isZh ? '暂无会话' : 'No sessions' }),
+      noSessionsHint: t('views.activityMonitor.noSessionsHint', { defaultValue: isZh ? '通过 Gateway 开始对话后，会话将显示在这里。' : 'Sessions will appear here after you start chatting via Gateway.' }),
+      step1: t('views.activityMonitor.step1', { defaultValue: isZh ? '配置 Gateway' : 'Configure Gateway' }),
+      step1Desc: t('views.activityMonitor.step1Desc', { defaultValue: isZh ? '连接 OpenClaw Gateway' : 'Connect OpenClaw Gateway' }),
+      step2: t('views.activityMonitor.step2', { defaultValue: isZh ? '开始对话' : 'Start Chatting' }),
+      step2Desc: t('views.activityMonitor.step2Desc', { defaultValue: isZh ? '在聊天中发送消息' : 'Send a message in chat' }),
+      step3: t('views.activityMonitor.step3', { defaultValue: isZh ? '在此监控' : 'Monitor Here' }),
+      step3Desc: t('views.activityMonitor.step3Desc', { defaultValue: isZh ? '会话会自动出现在这里' : 'Sessions will show up automatically' }),
+      groupToday: t('views.activityMonitor.groupToday', { defaultValue: isZh ? '今天' : 'Today' }),
+      groupYesterday: t('views.activityMonitor.groupYesterday', { defaultValue: isZh ? '昨天' : 'Yesterday' }),
+      groupThisWeek: t('views.activityMonitor.groupThisWeek', { defaultValue: isZh ? '本周' : 'This Week' }),
+      groupEarlier: t('views.activityMonitor.groupEarlier', { defaultValue: isZh ? '更早' : 'Earlier' }),
+      direct: t('views.activityMonitor.direct', { defaultValue: isZh ? '直连' : 'Direct' }),
+      group: t('views.activityMonitor.group', { defaultValue: isZh ? '分组' : 'Group' }),
+      global: t('views.activityMonitor.global', { defaultValue: isZh ? '全局' : 'Global' }),
+      unknown: t('views.activityMonitor.unknown', { defaultValue: isZh ? '未知' : 'Unknown' }),
+      totalTokens: t('views.activityMonitor.totalTokens', { defaultValue: isZh ? '总 Tokens' : 'Total Tokens' }),
+      input: t('views.activityMonitor.input', { defaultValue: isZh ? '输入' : 'Input' }),
+      output: t('views.activityMonitor.output', { defaultValue: isZh ? '输出' : 'Output' }),
+      active24h: t('views.activityMonitor.active24h', { defaultValue: isZh ? '24h 活跃' : '24h Active' }),
+      activity7d: t('views.activityMonitor.activity7d', { defaultValue: isZh ? '7天活跃' : '7d Activity' }),
+      messages: t('views.activityMonitor.messages', { defaultValue: isZh ? '消息' : 'Messages' }),
+      userMsg: t('views.activityMonitor.userMsg', { defaultValue: isZh ? '用户' : 'User' }),
+      assistantMsg: t('views.activityMonitor.assistantMsg', { defaultValue: isZh ? '助手' : 'Assistant' }),
+      toolCallsLabel: t('views.activityMonitor.toolCallsLabel', { defaultValue: isZh ? '工具' : 'Tools' }),
+      errors: t('views.activityMonitor.errors', { defaultValue: isZh ? '错误' : 'Errors' }),
+      channels: t('views.activityMonitor.channels', { defaultValue: isZh ? '渠道' : 'Channels' }),
+      costTrend: t('views.activityMonitor.costTrend', { defaultValue: isZh ? '7天费用' : '7d Cost' }),
+      modelDist: t('views.activityMonitor.modelDist', { defaultValue: isZh ? '模型分布' : 'Models' }),
+      aborted: t('views.activityMonitor.aborted', { defaultValue: isZh ? '中止' : 'Aborted' }),
+      tokens: t('views.activityMonitor.tokens', { defaultValue: isZh ? 'Token' : 'Token' }),
+      metadata: t('views.activityMonitor.metadata', { defaultValue: isZh ? '详情' : 'Details' }),
+      openChat: t('views.activityMonitor.openChat', { defaultValue: isZh ? '打开对话' : 'Open Chat' }),
+      latencyStats: t('views.activityMonitor.latencyStats', { defaultValue: isZh ? '延迟' : 'Latency' }),
+      gateway: t('views.activityMonitor.gateway', { defaultValue: 'Gateway' }),
+      online: t('views.activityMonitor.online', { defaultValue: isZh ? '在线' : 'Online' }),
+      offline: t('views.activityMonitor.offline', { defaultValue: isZh ? '离线' : 'Offline' }),
+    }),
+    [t, isZh, i18nInst.language],
+  );
+
   const listRef = useRef<HTMLDivElement>(null);
   const [result, setResult] = useState<{ sessions?: Record<string, unknown>[]; path?: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -462,16 +471,17 @@ const ActivityMonitorView: React.FC<ActivityMonitorViewProps> = ({ onNavigateTo 
   const isOnline = useGatewayStore((s) => s.status.state === 'running');
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#0f172a] text-white">
-      <div className="w-full flex flex-col h-full py-6 overflow-hidden px-4">
+    <div className="flex-1 h-full min-h-0 flex flex-col overflow-hidden bg-[#0f172a] text-white">
+      <div className="w-full h-full min-h-0 pt-0 pb-3 overflow-y-auto custom-scrollbar px-4">
         <PageHeader
           title={labels.title}
           subtitle={`${sessions.length} ${labels.sessions}${storePath ? ` · ${storePath}` : ''}`}
+          sticky={false}
           stats={[
             { label: i18n.t('views.activityMonitor.stats.sessions', { defaultValue: 'Sessions' }), value: sessions.length },
             { label: i18n.t('views.activityMonitor.stats.totalTokens', { defaultValue: 'Total Tokens' }), value: kpiStats.totalTok >= 1000 ? `${(kpiStats.totalTok / 1000).toFixed(1)}K` : kpiStats.totalTok },
             { label: i18n.t('views.activityMonitor.stats.active24h', { defaultValue: '24h Active' }), value: kpiStats.active24h },
-            { label: 'Gateway', value: isOnline ? i18n.t('views.activityMonitor.online', { defaultValue: 'Online' }) : i18n.t('views.activityMonitor.offline', { defaultValue: 'Offline' }), valueClassName: isOnline ? 'text-emerald-400' : 'text-amber-400' },
+            { label: labels.gateway, value: isOnline ? labels.online : labels.offline, valueClassName: isOnline ? 'text-emerald-400' : 'text-amber-400' },
           ]}
           onRefresh={() => void loadSessions()}
           refreshing={loading || refreshing}
@@ -518,7 +528,7 @@ const ActivityMonitorView: React.FC<ActivityMonitorViewProps> = ({ onNavigateTo 
             </div>
           }
         />
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-0">
+      <div className="flex flex-col px-0">
         <div
           className={cn(
             'shrink-0 py-3 border-b',
@@ -610,7 +620,7 @@ const ActivityMonitorView: React.FC<ActivityMonitorViewProps> = ({ onNavigateTo 
         </div>
       )}
 
-      <div ref={listRef} className="flex-1 overflow-y-auto">
+      <div ref={listRef} className="mt-1">
         {loading && !result ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-4">
             {Array.from({ length: 8 }).map((_, i) => (

@@ -36,6 +36,8 @@ interface PageHeaderProps {
   dividerClassName?: string;
   /** 为 true 时：副标题 → 分割线 → 操作/统计（分割线紧贴副标题下方） */
   dividerUnderSubtitle?: boolean;
+  /** 是否吸顶，默认 true */
+  sticky?: boolean;
 }
 
 export function PageHeader({
@@ -49,6 +51,7 @@ export function PageHeader({
   statsBorderColor = 'border-indigo-500/40',
   dividerClassName,
   dividerUnderSubtitle = false,
+  sticky = true,
 }: PageHeaderProps) {
   const initGateway = useGatewayStore((s) => s.init);
   const startGateway = useGatewayStore((s) => s.start);
@@ -71,7 +74,7 @@ export function PageHeader({
   };
 
   return (
-    <div className="sticky top-0 z-10 shrink-0 pt-4 pb-4 -mt-4 -mx-4 px-4 bg-[#0f172a] mb-0">
+    <div className={cn('z-10 shrink-0 pt-4 pb-4 -mt-4 -mx-4 px-4 bg-[#0f172a] mb-0', sticky && 'sticky top-0')}>
       {/* 标题行：dividerUnderSubtitle 时只显示标题+副标题，操作区移到分割线下方 */}
       <div className="flex items-start sm:items-center justify-between gap-3 mb-0 min-w-0">
         <div className="min-w-0 flex-1 pr-2">

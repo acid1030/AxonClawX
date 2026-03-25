@@ -12,7 +12,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "electron:dev": "npm run build:main && npm run build:preload && concurrently \"vite\" \"wait-on http://localhost:5173 && NODE_ENV=development VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "electron:dev": "npm run build:main && npm run build:preload && concurrently \"vite --host --port 5173\" \"node scripts/electron-dev.mjs\"",
     "electron:build": "npm run build:main && npm run build:preload && vite build && electron-builder",
     "electron:build:dir": "npm run electron:build -- --dir",
     "electron:build:mac": "npm run electron:build -- --mac",

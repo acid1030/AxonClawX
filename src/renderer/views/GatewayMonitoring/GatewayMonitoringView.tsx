@@ -41,7 +41,6 @@ import {
   Timer,
   Gauge,
   Settings2,
-  Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -55,7 +54,6 @@ import { useGatewayStore } from '@/stores/gateway';
 import { useGatewayOnline } from '@/hooks/useGatewayOnline';
 import { hostApiFetch } from '@/lib/host-api';
 import { HealthDot } from '@/components/common/HealthDot';
-import { PageHeader } from '@/components/common/PageHeader';
 import { cn } from '@/lib/utils';
 import { EventsPanel } from './EventsPanel';
 import { ChannelsPanel } from './ChannelsPanel';
@@ -131,6 +129,14 @@ export const GatewayMonitoringView: React.FC = () => {
   const gatewayStatus = useGatewayStore((s) => s.status);
   const { toast } = useToast();
   const { confirm } = useConfirm();
+  const gw = useMemo<Record<string, string>>(
+    () =>
+      new Proxy({} as Record<string, string>, {
+        get: (_target, prop: string) =>
+          t(`gw.${String(prop)}`, { defaultValue: String(prop) }),
+      }),
+    [t, i18n.language],
+  );
 
   // 状态
   const [status, setStatus] = useState<GatewayStatus | null>(null);
@@ -856,50 +862,16 @@ export const GatewayMonitoringView: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      <div className="w-full shrink-0 flex flex-col px-4 py-3 space-y-3 border-b border-white/5">
-        <PageHeader
-          title={t('gw.monitorTitle')}
-          subtitle={t('gw.monitorSubtitle')}
-          stats={[
-            { label: t('gw.status'), value: isOnline ? t('gw.running') : t('gw.stopped') },
-            { label: t('gw.wsStatus'), value: status?.ws_connected ? t('gw.wsConnected') : t('gw.wsDisconnected') },
-          ]}
-          onRefresh={() => {
-            fetchStatus();
-            fetchHealthCheck();
-            fetchProfiles();
-            fetchChannels();
-            if (activeTab === 'logs') fetchLogs();
-            if (activeTab === 'events') fetchEvents();
-          }}
-          refreshing={initialDetecting}
-          statsBorderColor="border-amber-500/40"
-          actions={
-            <Button
-              type="button"
-              size="sm"
-              onClick={openAddForm}
-              className="gap-1 shrink-0 border-2 border-primary/50 bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary"
-            >
-              <Plus className="w-4 h-4 shrink-0" />
-              <span className="whitespace-nowrap">{t('gw.addGateway')}</span>
-            </Button>
-          }
-        />
+      <div className="flex flex-col h-full min-h-0">
+      <div className="w-full shrink-0 flex flex-col px-4 py-0.5 space-y-0.5 border-b border-white/5">
+        <div className="pt-1 pb-0.5">
+          <h1 className="text-sm font-bold text-white">{t('gw.monitorTitle')}</h1>
+          <p className="text-[11px] text-white/45 mt-0.5">{t('gw.monitorSubtitle')}</p>
+        </div>
 
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
           <div className="flex items-center justify-between gap-2 mb-2">
             <h3 className="text-[10px] font-bold text-white/40 uppercase tracking-widest shrink-0">{t('gw.gwListTitle')}</h3>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={openAddForm}
-              className="gap-1 h-8 shrink-0 border-primary/40 text-primary bg-primary/10 hover:bg-primary/20"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              {t('gw.addGateway')}
-            </Button>
           </div>
           {profilesLoading && profiles.length === 0 ? (
             <div className="py-6 flex items-center justify-center gap-2 text-white/40 text-xs">
@@ -990,30 +962,6 @@ export const GatewayMonitoringView: React.FC = () => {
                   <p className="text-[11px] text-white/40 font-mono mt-0.5 truncate">
                     {p.host}:{p.port}
                   </p>
-                  <div className="absolute top-2 right-2 hidden group-hover:flex items-center gap-0.5">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditForm(p);
-                      }}
-                      className="w-7 h-7 rounded-md flex items-center justify-center bg-white/10 hover:bg-primary/20 text-white/70"
-                    >
-                      <Settings2 className="w-3.5 h-3.5" />
-                    </button>
-                    {profiles.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleDeleteProfile(p.id);
-                        }}
-                        className="w-7 h-7 rounded-md flex items-center justify-center bg-white/10 hover:bg-red-500/20 text-white/70"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
                 </div>
               ))}
             </div>
@@ -1022,7 +970,7 @@ export const GatewayMonitoringView: React.FC = () => {
 
       {/* 远程网关 WS 数据通道未连接提示 */}
       {!initialDetecting && status?.running && status?.remote && !status?.ws_connected && (
-        <div className="rounded-xl border-2 p-3 mb-4 shrink-0 bg-amber-500/5" style={{ borderColor: 'rgba(245, 158, 11, 0.3)' }}>
+        <div className="rounded-xl border-2 p-3 mb-2 shrink-0 bg-amber-500/5" style={{ borderColor: 'rgba(245, 158, 11, 0.3)' }}>
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-400" />
             <span className="text-[11px] font-bold text-amber-400">{t('gw.wsDisconnected')}</span>
@@ -1035,7 +983,7 @@ export const GatewayMonitoringView: React.FC = () => {
       )}
 
       {/* Gateway 状态面板：与 Dashboard 风格一致 */}
-      <div className="rounded-xl border-2 p-4 sm:p-5 mb-4 shrink-0 bg-[#1e293b]"
+      <div className="rounded-xl border-2 p-3 sm:p-4 mb-2 shrink-0 bg-[#1e293b]"
         style={{ borderColor: isOnline ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.4)' }}
       >
         <div className="flex items-start justify-between gap-4">
@@ -1254,8 +1202,8 @@ export const GatewayMonitoringView: React.FC = () => {
       </div>
 
       {/* Tab 面板：占满剩余高度，避免被上方内容挤没 */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-4 pb-4">
-        <div className="flex-1 flex flex-col min-h-0 rounded-xl border border-white/10 bg-[#0a121c] overflow-hidden shadow-inner">
+      <div className="flex-1 min-h-0 flex flex-col px-4 pb-4">
+        <div className="flex-1 min-h-0 flex flex-col rounded-xl border border-white/10 bg-[#0a121c] overflow-hidden shadow-inner">
         {/* Tab 栏 */}
         <div className="shrink-0 h-10 flex items-center gap-1 px-3 border-b border-white/5 bg-[#0f1419]">
           {(['logs', 'events', 'channels', 'service', 'debug'] as const).map((tab) => {
@@ -1359,7 +1307,7 @@ export const GatewayMonitoringView: React.FC = () => {
         </div>
 
         {/* Tab 内容 */}
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {activeTab === 'logs' ? (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 overflow-y-auto font-mono text-[11px] p-4 custom-scrollbar">
@@ -1545,6 +1493,7 @@ export const GatewayMonitoringView: React.FC = () => {
           )}
         </div>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Lock } from 'lucide-react';
 import { useChatStore } from '@/stores/chat';
 import { Icons } from '../Icons/IconComponents';
 import { SidebarItem } from './SidebarItem';
@@ -23,9 +24,10 @@ const menuItems: { id: string; icon: any; labelKey: string }[] = [
 interface UnifiedSidebarProps {
   activeView?: string;
   onViewChange?: (viewId: string) => void;
+  onLock?: () => void;
 }
 
-export function UnifiedSidebar({ activeView = 'dashboard', onViewChange }: UnifiedSidebarProps) {
+export function UnifiedSidebar({ activeView = 'dashboard', onViewChange, onLock }: UnifiedSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { t } = useTranslation();
   const newSession = useChatStore((s) => s.newSession);
@@ -119,11 +121,20 @@ export function UnifiedSidebar({ activeView = 'dashboard', onViewChange }: Unifi
       </nav>
 
       {/* Collapse Button */}
-      <div className="flex-shrink-0 p-3 flex justify-center border-t border-white/5">
+      <div className="flex-shrink-0 p-3 border-t border-white/5 space-y-2">
+        <button
+          onClick={() => onLock?.()}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 hover:bg-white/5 transition-colors"
+        >
+          <Lock className="w-4 h-4 text-white/60 flex-shrink-0" />
+          {!isCollapsed && <span className="text-sm text-white/80">{t('lock', { ns: 'nav' })}</span>}
+        </button>
+        <div className="flex justify-center">
         <CollapseButton
           isCollapsed={isCollapsed}
           onToggle={() => setIsCollapsed(!isCollapsed)}
         />
+        </div>
       </div>
     </motion.aside>
   );

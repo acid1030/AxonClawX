@@ -30,7 +30,7 @@ extraMetadata:
 # macOS 配置
 mac:
   category: public.app-category.productivity
-  icon: build/icon.icns
+  icon: designUI/image/icon.icns
   target:
     - target: dmg
       arch:

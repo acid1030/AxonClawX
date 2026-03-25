@@ -1,7 +1,8 @@
 // AxonClaw - Main Process Entry Point
 // Electron Main Process
 
-import { app, BrowserWindow, ipcMain, shell, clipboard } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, clipboard, nativeImage } from 'electron';
+import { createHash } from 'crypto';
 
 // 捕获 EPIPE 等写入已关闭管道错误，避免未处理异常导致进程退出
 process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
@@ -50,6 +51,8 @@ import {
   listAlerts,
   recentAlerts,
   alertSummaryStats,
+  getSetting,
+  setSetting,
   loadBootstrapConfig,
   saveBootstrapConfig,
   getConfigFilePath,
@@ -58,6 +61,131 @@ import {
 
 // Global window reference
 let mainWindow: BrowserWindow | null = null;
+let appLocked = false;
+
+const LOCK_AUTH_USERNAME_KEY = 'auth.lock.username';
+const LOCK_AUTH_PASSWORD_HASH_KEY = 'auth.lock.password_sha256';
+const LOCK_DEFAULT_USERNAME = 'admin';
+const LOCK_DEFAULT_PASSWORD = '123456';
+const GW_MODE_KEY = 'gateway.connection.mode';
+const GW_REMOTE_PROTOCOL_KEY = 'gateway.remote.protocol';
+const GW_REMOTE_HOST_KEY = 'gateway.remote.host';
+const GW_REMOTE_PORT_KEY = 'gateway.remote.port';
+const GW_REMOTE_TOKEN_KEY = 'gateway.remote.token';
+
+function hashLockPassword(password: string): string {
+  return createHash('sha256').update(`AxonClawX:${password}`).digest('hex');
+}
+
+function ensureLockAuthSeed(): void {
+  if (!isInitialized()) return;
+  const username = getSetting(LOCK_AUTH_USERNAME_KEY);
+  const passwordHash = getSetting(LOCK_AUTH_PASSWORD_HASH_KEY);
+  if (!username) setSetting(LOCK_AUTH_USERNAME_KEY, LOCK_DEFAULT_USERNAME);
+  if (!passwordHash) setSetting(LOCK_AUTH_PASSWORD_HASH_KEY, hashLockPassword(LOCK_DEFAULT_PASSWORD));
+}
+
+function verifyLockCredentials(username: string, password: string): boolean {
+  if (!isInitialized()) return false;
+  ensureLockAuthSeed();
+  const storedUsername = getSetting(LOCK_AUTH_USERNAME_KEY) || LOCK_DEFAULT_USERNAME;
+  const storedHash = getSetting(LOCK_AUTH_PASSWORD_HASH_KEY) || hashLockPassword(LOCK_DEFAULT_PASSWORD);
+  const inputHash = hashLockPassword(password);
+  return username === storedUsername && inputHash === storedHash;
+}
+
+type GatewayConnectionSettings = {
+  mode: 'local' | 'remote';
+  protocol: 'ws' | 'wss';
+  host: string;
+  port: number;
+  token: string;
+};
+
+function getGatewayConnectionSettings(): GatewayConnectionSettings {
+  const localDefaults: GatewayConnectionSettings = {
+    mode: 'local',
+    protocol: 'ws',
+    host: '127.0.0.1',
+    port: getResolvedGatewayPort(),
+    token: GATEWAY_TOKEN,
+  };
+
+  try {
+    if (!isInitialized()) return localDefaults;
+    const mode = (getSetting(GW_MODE_KEY) || 'local').toLowerCase() === 'remote' ? 'remote' : 'local';
+    if (mode === 'local') return localDefaults;
+
+    const protocolRaw = (getSetting(GW_REMOTE_PROTOCOL_KEY) || 'ws').toLowerCase();
+    const protocol: 'ws' | 'wss' = protocolRaw === 'wss' ? 'wss' : 'ws';
+    const host = (getSetting(GW_REMOTE_HOST_KEY) || '').trim();
+    const portRaw = parseInt(getSetting(GW_REMOTE_PORT_KEY) || '', 10);
+    const token = (getSetting(GW_REMOTE_TOKEN_KEY) || '').trim() || GATEWAY_TOKEN;
+    const port = Number.isFinite(portRaw) && portRaw > 0 && portRaw <= 65535 ? portRaw : 18789;
+
+    if (!host) return localDefaults;
+    return { mode, protocol, host, port, token };
+  } catch {
+    return localDefaults;
+  }
+}
+
+function getGatewayAuthToken(): string {
+  return getGatewayConnectionSettings().token;
+}
+
+function applyCustomAppIcon(): void {
+  if (process.platform !== 'darwin') return;
+  const appDir = path.dirname(app.getAppPath());
+  const candidates = [
+    path.join(process.resourcesPath, 'clawLogo1.png'),
+    path.join(process.resourcesPath, 'designUI', 'image', 'clawLogo1.png'),
+    path.join(process.resourcesPath, 'icon.icns'),
+    path.join(process.resourcesPath, 'build', 'icon.icns'),
+    path.join(appDir, 'icon.icns'),
+    path.join(appDir, 'build', 'icon.icns'),
+    path.join(app.getAppPath(), 'build', 'icon.icns'),
+    path.join(app.getAppPath(), 'designUI', 'image', 'icon.icns'),
+    path.join(app.getAppPath(), 'designUI', 'image', 'clawLogo1.png'),
+    path.join(process.cwd(), 'build', 'icon.icns'),
+    path.join(process.cwd(), 'designUI', 'image', 'icon.icns'),
+    path.join(process.cwd(), 'designUI', 'image', 'clawLogo1.png'),
+  ];
+  const iconPath = candidates.find((p) => fs.existsSync(p));
+  if (!iconPath) return;
+  try {
+    // dev 模式下 PNG 兼容性更好，优先直接按路径设置
+    app.dock.setIcon(iconPath);
+    const icon = nativeImage.createFromPath(iconPath);
+    if (!icon.isEmpty()) {
+      console.log('[Main] App icon:', iconPath);
+      app.dock.setIcon(icon);
+    }
+  } catch (err) {
+    console.warn('[Main] Failed to set dock icon:', err);
+  }
+}
+
+function resolveWindowIconPath(): string | undefined {
+  const appDir = path.dirname(app.getAppPath());
+  const candidates = [
+    path.join(process.resourcesPath, 'icon.icns'),
+    path.join(process.resourcesPath, 'build', 'icon.icns'),
+    path.join(process.resourcesPath, 'icon.ico'),
+    path.join(process.resourcesPath, 'build', 'icon.ico'),
+    path.join(appDir, 'icon.icns'),
+    path.join(appDir, 'build', 'icon.icns'),
+    path.join(appDir, 'icon.ico'),
+    path.join(appDir, 'build', 'icon.ico'),
+    path.join(app.getAppPath(), 'build', 'icon.icns'),
+    path.join(app.getAppPath(), 'designUI', 'image', 'icon.icns'),
+    path.join(app.getAppPath(), 'build', 'icon.ico'),
+    path.join(process.cwd(), 'build', 'icon.icns'),
+    path.join(process.cwd(), 'designUI', 'image', 'icon.icns'),
+    path.join(process.cwd(), 'build', 'icon.ico'),
+  ];
+  return candidates.find((p) => fs.existsSync(p));
+}
 
 /** 安全发送 IPC 到渲染进程，避免 EPIPE 等导致进程崩溃 */
 function safeSendToRenderer(channel: string, ...args: unknown[]): void {
@@ -82,6 +210,7 @@ function safeSendToRenderer(channel: string, ...args: unknown[]): void {
  */
 function createWindow(): BrowserWindow {
   const isMac = process.platform === 'darwin';
+  const windowIcon = resolveWindowIconPath();
 
   const win = new BrowserWindow({
     width: 1400,
@@ -97,7 +226,13 @@ function createWindow(): BrowserWindow {
     titleBarStyle: isMac ? 'hiddenInset' : undefined,
     trafficLightPosition: isMac ? { x: 15, y: 15 } : undefined,
     frame: isMac,
+    icon: windowIcon,
   });
+
+  if (isMac) {
+    // 再次设置一次 dock 图标，避免 dev 模式偶发不生效
+    applyCustomAppIcon();
+  }
 
   // Development: Load from Vite dev server
   if (process.env.NODE_ENV === 'development' || process.env.VITE_DEV_SERVER_URL) {
@@ -148,6 +283,7 @@ async function initialize(): Promise<void> {
   // 初始化数据库（默认 SQLite，路径可通过 AXONCLAW_DB_PATH 或后续启动配置选择）
   try {
     initDatabase();
+    ensureLockAuthSeed();
   } catch (err) {
     console.error('[Main] Database init failed:', err);
   }
@@ -163,6 +299,7 @@ async function initialize(): Promise<void> {
   }
 
   // Create the main window
+  applyCustomAppIcon();
   mainWindow = createWindow();
 
   // Subscribe to Gateway events
@@ -292,6 +429,11 @@ ipcMain.handle('gateway:isRunning', () => {
 // 真实连接检测：多端口探测（配置端口 + 18789/18791/18792），成功后缓存端口
 ipcMain.handle('gateway:checkConnection', async () => {
   try {
+    const cfg = getGatewayConnectionSettings();
+    if (cfg.mode === 'remote') {
+      const result = await testGatewayWsConnection(cfg.protocol, cfg.host, cfg.port, cfg.token, 5000);
+      return { success: result.success, port: cfg.port, error: result.error };
+    }
     const result = await resolveGatewayPort();
     return { success: result.success, port: result.port, error: result.error };
   } catch (e) {
@@ -366,7 +508,7 @@ ipcMain.handle('gateway:rpc', async (_event, methodOrPayload: unknown, paramsOrU
               minProtocol: 3,
               maxProtocol: 3,
               client: { id: 'gateway-client', displayName: 'ClawX', version: '0.1.0', platform: process.platform, mode: 'ui' },
-              auth: { token: GATEWAY_TOKEN },
+              auth: { token: getGatewayAuthToken() },
               role: 'operator',
               scopes: ['operator.admin'],
             },
@@ -502,6 +644,234 @@ ipcMain.handle('skills:openFolder', async () => {
 
 ipcMain.handle('openclaw:getSkillsDir', () => SKILLS_DIR);
 
+ipcMain.handle('setup:scan-environment', async () => {
+  const checkCommand = async (cmd: string): Promise<{ installed: boolean; version?: string; path?: string }> => {
+    try {
+      const { stdout } = await execAsync(cmd, { timeout: 5000 });
+      return { installed: true, version: stdout.trim() || undefined };
+    } catch {
+      return { installed: false };
+    }
+  };
+
+  const checkCommandPath = async (name: string): Promise<string | undefined> => {
+    try {
+      const { stdout } = await execAsync(`command -v ${name}`, { timeout: 3000 });
+      const pathValue = stdout.trim();
+      return pathValue || undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const nodeInfo = { installed: true, version: process.version, path: process.execPath };
+  const npmInfo = await checkCommand('npm --version');
+  npmInfo.path = await checkCommandPath('npm');
+  const gitInfo = await checkCommand('git --version');
+  gitInfo.path = await checkCommandPath('git');
+  const openclawVersion = await checkCommand('openclaw --version');
+  openclawVersion.path = await checkCommandPath('openclaw');
+  const clawhubVersion = await checkCommand('clawhub --version');
+  clawhubVersion.path = await checkCommandPath('clawhub');
+
+  const localProbe = await resolveGatewayPort();
+  const gatewayRunning = !!localProbe.success;
+  const gatewayPort = localProbe.port ?? getResolvedGatewayPort();
+  const remoteCfg = getGatewayConnectionSettings();
+
+  const cloudOptions = [
+    {
+      id: 'docker',
+      name: 'Docker / Docker Compose',
+      description: 'Use a container to run OpenClaw service.',
+      docsUrl: 'https://docs.docker.com/get-started/',
+      command: 'docker run -d --name openclaw -p 18789:18789 ghcr.io/openclaw/openclaw:latest',
+    },
+    {
+      id: 'railway',
+      name: 'Railway',
+      description: 'One-click deploy OpenClaw on Railway.',
+      docsUrl: 'https://docs.railway.com/',
+      command: 'railway up',
+    },
+    {
+      id: 'render',
+      name: 'Render',
+      description: 'Deploy as a Render Web Service.',
+      docsUrl: 'https://render.com/docs',
+      command: 'Create a Web Service and expose port 18789',
+    },
+    {
+      id: 'flyio',
+      name: 'Fly.io',
+      description: 'Deploy globally with Fly Machines.',
+      docsUrl: 'https://fly.io/docs/',
+      command: 'fly launch && fly deploy',
+    },
+  ];
+
+  return {
+    success: true,
+    data: {
+      os: process.platform,
+      arch: process.arch,
+      local: {
+        node: nodeInfo,
+        npm: npmInfo,
+        git: gitInfo,
+        openclaw: openclawVersion,
+        clawhub: clawhubVersion,
+        openClawInstalled: openclawVersion.installed,
+        openClawVersion: openclawVersion.version,
+        gatewayRunning,
+        gatewayPort,
+      },
+      remote: {
+        mode: remoteCfg.mode,
+        protocol: remoteCfg.protocol,
+        host: remoteCfg.host,
+        port: remoteCfg.port,
+        hasToken: !!remoteCfg.token,
+      },
+      cloudOptions,
+    },
+  };
+});
+
+ipcMain.handle('setup:test-remote-gateway', async (_event, payload: {
+  protocol?: 'ws' | 'wss';
+  host?: string;
+  port?: number;
+  token?: string;
+}) => {
+  const protocol: 'ws' | 'wss' = payload?.protocol === 'wss' ? 'wss' : 'ws';
+  const host = String(payload?.host || '').trim();
+  const port = Number(payload?.port || 0);
+  const token = String(payload?.token || '').trim() || GATEWAY_TOKEN;
+  if (!host || !port || !Number.isFinite(port)) {
+    return { success: false, error: 'Invalid remote endpoint' };
+  }
+
+  const result = await testGatewayWsConnection(protocol, host, port, token);
+  return { success: result.success, error: result.error };
+});
+
+ipcMain.handle('setup:save-remote-gateway', async (_event, payload: {
+  protocol?: 'ws' | 'wss';
+  host?: string;
+  port?: number;
+  token?: string;
+}) => {
+  const protocol: 'ws' | 'wss' = payload?.protocol === 'wss' ? 'wss' : 'ws';
+  const host = String(payload?.host || '').trim();
+  const port = Number(payload?.port || 0);
+  const token = String(payload?.token || '').trim() || GATEWAY_TOKEN;
+  if (!host || !port || !Number.isFinite(port)) {
+    return { success: false, error: 'Invalid remote endpoint' };
+  }
+
+  setSetting(GW_MODE_KEY, 'remote');
+  setSetting(GW_REMOTE_PROTOCOL_KEY, protocol);
+  setSetting(GW_REMOTE_HOST_KEY, host);
+  setSetting(GW_REMOTE_PORT_KEY, String(port));
+  setSetting(GW_REMOTE_TOKEN_KEY, token);
+  return { success: true };
+});
+
+ipcMain.handle('setup:connect-local-gateway', async () => {
+  setSetting(GW_MODE_KEY, 'local');
+  try {
+    const status = getGatewayStatus();
+    if (status.state !== 'running') {
+      await startGateway();
+    }
+  } catch {
+    // ignore start failure, still probe connection below
+  }
+  const probe = await resolveGatewayPort();
+  return {
+    success: !!probe.success,
+    port: probe.port,
+    error: probe.error,
+  };
+});
+
+ipcMain.handle('setup:install-local-openclaw', async () => {
+  const logs: string[] = [];
+  const run = async (cmd: string, timeout = 120000): Promise<{ ok: boolean; output: string }> => {
+    try {
+      const { stdout, stderr } = await execAsync(cmd, { timeout, maxBuffer: 1024 * 1024 * 8 });
+      const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+      if (output) logs.push(`$ ${cmd}\n${output}`);
+      return { ok: true, output };
+    } catch (err) {
+      const output = String((err as Error)?.message || err);
+      logs.push(`$ ${cmd}\n${output}`);
+      return { ok: false, output };
+    }
+  };
+
+  const hasOpenClaw = await run('openclaw --version', 10000);
+  if (!hasOpenClaw.ok) {
+    const install = await run('npm install -g @openclaw/core', 20 * 60 * 1000);
+    if (!install.ok) {
+      return { success: false, error: 'Failed to install OpenClaw via npm.', logs };
+    }
+  }
+
+  await run('openclaw gateway start', 120000);
+  const probe = await resolveGatewayPort();
+  if (!probe.success) {
+    return { success: false, error: probe.error || 'Gateway failed to start', logs };
+  }
+
+  setSetting(GW_MODE_KEY, 'local');
+  return { success: true, port: probe.port, logs };
+});
+
+// Legacy setup channels compatibility
+ipcMain.handle('openclaw:status', async () => {
+  try {
+    const { stdout: pathStdout } = await execAsync('command -v openclaw', { timeout: 3000 });
+    const cliPath = pathStdout.trim();
+    let version = '';
+    try {
+      const { stdout } = await execAsync('openclaw --version', { timeout: 5000 });
+      version = stdout.trim();
+    } catch {
+      // ignore version failure
+    }
+    return {
+      packageExists: !!cliPath,
+      isBuilt: !!cliPath,
+      dir: cliPath,
+      version,
+    };
+  } catch {
+    return {
+      packageExists: false,
+      isBuilt: false,
+      dir: '',
+      version: '',
+    };
+  }
+});
+
+ipcMain.handle('uv:install-all', async () => {
+  try {
+    await execAsync('uv --version', { timeout: 5000 });
+    return { success: true };
+  } catch {
+    // 兼容旧向导：此处优先保证 OpenClaw 运行所需环境可用
+    try {
+      await execAsync('npm install -g @openclaw/core', { timeout: 20 * 60 * 1000, maxBuffer: 1024 * 1024 * 8 });
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  }
+});
+
 ipcMain.handle('skills:listInstalled', async () => {
   try {
     const results = await listInstalled();
@@ -586,7 +956,7 @@ ipcMain.handle('sessions.list', async (_event, { limit, agentId }) => {
                 platform: process.platform,
                 mode: 'ui',
               },
-              auth: { token: GATEWAY_TOKEN },
+              auth: { token: getGatewayAuthToken() },
               role: 'operator',
               scopes: ['operator.admin'],
             },
@@ -653,7 +1023,9 @@ ipcMain.handle('sessions.list', async (_event, { limit, agentId }) => {
 
 // Host API proxy - Gateway REST API（端口从 openclaw.json 或连接探测结果动态解析）
 function getGatewayApiBase(): string {
-  return `http://127.0.0.1:${getResolvedGatewayPort()}`;
+  const cfg = getGatewayConnectionSettings();
+  const httpProtocol = cfg.protocol === 'wss' ? 'https' : 'http';
+  return `${httpProtocol}://${cfg.host}:${cfg.port}`;
 }
 
 /** ClawDeckX 默认 HTTP 端口，WebSocket 失败时可尝试从此处获取 agents */
@@ -801,7 +1173,83 @@ async function fetchAgentsFromClawDeckX(): Promise<{
   return null;
 }
 function getGatewayWsUrl(): string {
-  return `ws://127.0.0.1:${getResolvedGatewayPort()}/ws`;
+  const cfg = getGatewayConnectionSettings();
+  return `${cfg.protocol}://${cfg.host}:${cfg.port}/ws`;
+}
+
+async function testGatewayWsConnection(
+  protocol: 'ws' | 'wss',
+  host: string,
+  port: number,
+  token: string,
+  timeoutMs = 8000
+): Promise<{ success: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const WebSocket = require('ws');
+    const ws = new WebSocket(`${protocol}://${host}:${port}/ws`);
+    let finished = false;
+
+    const done = (result: { success: boolean; error?: string }) => {
+      if (finished) return;
+      finished = true;
+      try {
+        ws.close();
+      } catch {
+        // ignore
+      }
+      resolve(result);
+    };
+
+    const timeout = setTimeout(() => done({ success: false, error: 'Connection timeout' }), timeoutMs);
+
+    ws.on('message', (data: Buffer) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'event' && msg.event === 'connect.challenge') {
+          ws.send(JSON.stringify({
+            type: 'req',
+            id: 'setup-connect-' + Date.now(),
+            method: 'connect',
+            params: {
+              minProtocol: 3,
+              maxProtocol: 3,
+              client: {
+                id: 'gateway-client',
+                displayName: 'AxonClawX Setup',
+                version: '1.0.0',
+                platform: process.platform,
+                mode: 'ui',
+              },
+              auth: { token },
+              role: 'operator',
+              scopes: ['operator.admin'],
+            },
+          }));
+          return;
+        }
+        if (msg.type === 'res' && String(msg.id).startsWith('setup-connect-')) {
+          clearTimeout(timeout);
+          if (msg.ok) {
+            done({ success: true });
+          } else {
+            done({ success: false, error: String(msg.error?.message ?? msg.error ?? 'Authentication failed') });
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+    });
+
+    ws.on('error', (err: Error) => {
+      clearTimeout(timeout);
+      done({ success: false, error: err.message || 'WebSocket error' });
+    });
+
+    ws.on('close', () => {
+      clearTimeout(timeout);
+      if (!finished) done({ success: false, error: 'Connection closed' });
+    });
+  });
 }
 // 保存 path 模块引用，避免在 hostapi:fetch handler 中被同名参数遮蔽
 const nodePath = path;
@@ -850,18 +1298,19 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
   try {
     // 特殊处理：AxonClaw 的 gateway-info API
     if (path === '/api/app/gateway-info') {
-      const port = getResolvedGatewayPort();
-      const wsUrl = `ws://127.0.0.1:${port}/ws`;
+      const cfg = getGatewayConnectionSettings();
+      const port = cfg.port;
+      const wsUrl = `${cfg.protocol}://${cfg.host}:${port}/ws`;
       return {
         ok: true,
         data: {
           status: 200,
           ok: true,
-          json: { wsUrl, token: GATEWAY_TOKEN, port },
+          json: { wsUrl, token: cfg.token, port, mode: cfg.mode, host: cfg.host },
         },
         success: true,
         status: 200,
-        json: { wsUrl, token: GATEWAY_TOKEN, port },
+        json: { wsUrl, token: cfg.token, port, mode: cfg.mode, host: cfg.host },
       };
     }
 
@@ -1205,6 +1654,74 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
         return { ok: false, data: { status: 500, json: { error: String(err) }, ok: false }, success: false, status: 500, json: { error: String(err) } };
       }
       return { ok: true, data: { status: 200, json: { success: true }, ok: true }, success: true, status: 200, json: { success: true } };
+    }
+
+    // 特殊处理：锁屏认证
+    if (path === '/api/auth/lock/status' && method === 'GET') {
+      return {
+        ok: true,
+        data: { status: 200, json: { locked: appLocked }, ok: true },
+        success: true,
+        status: 200,
+        json: { locked: appLocked },
+      };
+    }
+
+    if (path === '/api/auth/lock' && method === 'POST') {
+      appLocked = true;
+      return {
+        ok: true,
+        data: { status: 200, json: { success: true, locked: true }, ok: true },
+        success: true,
+        status: 200,
+        json: { success: true, locked: true },
+      };
+    }
+
+    if (path === '/api/auth/unlock' && method === 'POST' && body) {
+      try {
+        const payload = typeof body === 'string' ? JSON.parse(body) : (body as { username?: string; password?: string });
+        const username = String(payload?.username ?? '').trim();
+        const password = String(payload?.password ?? '');
+        if (!username || !password) {
+          return {
+            ok: false,
+            error: 'Missing username or password',
+            data: { status: 400, json: { error: 'Missing username or password' }, ok: false },
+            success: false,
+            status: 400,
+            json: { error: 'Missing username or password' },
+          };
+        }
+        if (!verifyLockCredentials(username, password)) {
+          return {
+            ok: false,
+            error: 'Invalid username or password',
+            data: { status: 401, json: { error: 'Invalid username or password' }, ok: false },
+            success: false,
+            status: 401,
+            json: { error: 'Invalid username or password' },
+          };
+        }
+        appLocked = false;
+        return {
+          ok: true,
+          data: { status: 200, json: { success: true, locked: false }, ok: true },
+          success: true,
+          status: 200,
+          json: { success: true, locked: false },
+        };
+      } catch (err) {
+        const msg = String(err);
+        return {
+          ok: false,
+          error: msg,
+          data: { status: 500, json: { error: msg }, ok: false },
+          success: false,
+          status: 500,
+          json: { error: msg },
+        };
+      }
     }
 
     // 特殊处理：/api/settings（通用设置：语言 + 风格）
@@ -2422,8 +2939,49 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
     }
     if (path === '/api/v1/setup/scan' && method === 'GET') {
       try {
-        const openclawInstalled = fs.existsSync(OPENCLAW_CONFIG_PATH) || (await callGatewayRpc('health', { probe: false }, 3000).then((r) => r.ok).catch(() => false));
-        const data = { openClawInstalled: !!openclawInstalled };
+        const scan = await (async () => {
+          const { stdout: openclawPathRaw } = await execAsync('command -v openclaw || true', { timeout: 3000 });
+          const openclawPath = openclawPathRaw.trim();
+          let openclawVersion = '';
+          if (openclawPath) {
+            try {
+              const { stdout } = await execAsync('openclaw --version', { timeout: 5000 });
+              openclawVersion = stdout.trim();
+            } catch {
+              // ignore
+            }
+          }
+          const probe = await resolveGatewayPort();
+          return {
+            openclawPath,
+            openclawVersion,
+            gatewayRunning: probe.success,
+            gatewayPort: probe.port ?? getResolvedGatewayPort(),
+          };
+        })();
+        const data = {
+          os: process.platform,
+          arch: process.arch,
+          packageManager: 'npm',
+          hasSudo: true,
+          tools: {
+            node: { installed: true, version: process.version, path: process.execPath },
+            npm: { installed: true },
+            git: { installed: true },
+            openclaw: { installed: !!scan.openclawPath, version: scan.openclawVersion, path: scan.openclawPath },
+            clawhub: { installed: false },
+          },
+          internetAccess: true,
+          openClawInstalled: !!scan.openclawPath,
+          openClawConfigured: fs.existsSync(OPENCLAW_CONFIG_PATH),
+          openClawVersion: scan.openclawVersion,
+          openClawCnInstalled: false,
+          gatewayRunning: !!scan.gatewayRunning,
+          gatewayPort: scan.gatewayPort,
+          recommendedMethod: 'auto',
+          recommendedSteps: [],
+          warnings: [],
+        };
         return { ok: true, data: { status: 200, json: { success: true, data }, ok: true }, success: true, status: 200, json: { success: true, data } };
       } catch (err) {
         return { ok: true, data: { status: 200, json: { success: true, data: { openClawInstalled: false } }, ok: true }, success: true, status: 200, json: { success: true, data: { openClawInstalled: false } } };

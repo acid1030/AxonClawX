@@ -1008,7 +1008,7 @@ const Nodes: React.FC<NodesProps> = ({ language }) => {
   ];
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-[#0f1115]">
+    <div className="dark flex-1 flex flex-col overflow-hidden bg-[#0f1115] text-white">
       {/* 顶部 */}
       <div className="flex flex-col border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-black/20 shrink-0">
         <div className="h-12 flex items-center justify-center px-4 border-b border-slate-200/50 dark:border-white/5">

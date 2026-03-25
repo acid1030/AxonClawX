@@ -396,314 +396,343 @@ interface RuntimeContentProps {
 
 function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
   const { t } = useTranslation('setup');
-  const gatewayStatus = useGatewayStore((state) => state.status);
-  const startGateway = useGatewayStore((state) => state.start);
+  type SetupMode = 'local-existing' | 'remote-existing' | 'local-install' | 'cloud-install';
+  type ScanData = {
+    os: string;
+    arch: string;
+    local: {
+      openClawInstalled: boolean;
+      openClawVersion?: string;
+      gatewayRunning: boolean;
+      gatewayPort?: number;
+      openclaw?: { path?: string };
+      clawhub?: { installed: boolean; version?: string; path?: string };
+      node?: { installed: boolean };
+      npm?: { installed: boolean };
+      git?: { installed: boolean };
+    };
+    remote?: {
+      mode?: 'local' | 'remote';
+      protocol?: 'ws' | 'wss';
+      host?: string;
+      port?: number;
+      hasToken?: boolean;
+    };
+    cloudOptions: Array<{ id: string; name: string; description: string; docsUrl: string; command: string }>;
+  };
 
-  const [checks, setChecks] = useState({
-    nodejs: { status: 'checking' as 'checking' | 'success' | 'error', message: '' },
-    openclaw: { status: 'checking' as 'checking' | 'success' | 'error', message: '' },
-    gateway: { status: 'checking' as 'checking' | 'success' | 'error', message: '' },
-  });
-  const [showLogs, setShowLogs] = useState(false);
-  const [logContent, setLogContent] = useState('');
-  const [openclawDir, setOpenclawDir] = useState('');
-  const gatewayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [mode, setMode] = useState<SetupMode>('local-existing');
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanData, setScanData] = useState<ScanData | null>(null);
+  const [error, setError] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+  const [remoteTesting, setRemoteTesting] = useState(false);
+  const [remoteProtocol, setRemoteProtocol] = useState<'ws' | 'wss'>('ws');
+  const [remoteHost, setRemoteHost] = useState('');
+  const [remotePort, setRemotePort] = useState('18789');
+  const [remoteToken, setRemoteToken] = useState('');
+  const [remoteConnected, setRemoteConnected] = useState(false);
+  const [localConnected, setLocalConnected] = useState(false);
+  const [installLogs, setInstallLogs] = useState<string[]>([]);
+  const [recommendedMode, setRecommendedMode] = useState<SetupMode | null>(null);
 
-  const runChecks = useCallback(async () => {
-    // Reset checks
-    setChecks({
-      nodejs: { status: 'checking', message: '' },
-      openclaw: { status: 'checking', message: '' },
-      gateway: { status: 'checking', message: '' },
-    });
-
-    // Check Node.js — always available in Electron
-    setChecks((prev) => ({
-      ...prev,
-      nodejs: { status: 'success', message: t('runtime.status.success') },
-    }));
-
-    // Check OpenClaw package status
+  const refreshScan = useCallback(async () => {
+    setScanLoading(true);
+    setError('');
     try {
-      const openclawStatus = await invokeIpc('openclaw:status') as {
-        packageExists: boolean;
-        isBuilt: boolean;
-        dir: string;
-        version?: string;
-      };
-
-      setOpenclawDir(openclawStatus.dir);
-
-      if (!openclawStatus.packageExists) {
-        setChecks((prev) => ({
-          ...prev,
-          openclaw: {
-            status: 'error',
-            message: `OpenClaw package not found at: ${openclawStatus.dir}`
-          },
-        }));
-      } else if (!openclawStatus.isBuilt) {
-        setChecks((prev) => ({
-          ...prev,
-          openclaw: {
-            status: 'error',
-            message: 'OpenClaw package found but dist is missing'
-          },
-        }));
-      } else {
-        const versionLabel = openclawStatus.version ? ` v${openclawStatus.version}` : '';
-        setChecks((prev) => ({
-          ...prev,
-          openclaw: {
-            status: 'success',
-            message: `OpenClaw package ready${versionLabel}`
-          },
-        }));
+      const result = await invokeIpc<{ success: boolean; data?: ScanData }>('setup:scan-environment');
+      if (!result?.success || !result?.data) {
+        setError(t('runtime.status.error', { defaultValue: '环境扫描失败' }));
+        return;
       }
-    } catch (error) {
-      setChecks((prev) => ({
-        ...prev,
-        openclaw: { status: 'error', message: `Check failed: ${error}` },
-      }));
-    }
-
-    // Check Gateway — read directly from store to avoid stale closure
-    // Don't immediately report error; gateway may still be initializing
-    const currentGateway = useGatewayStore.getState().status;
-    if (currentGateway.state === 'running') {
-      setChecks((prev) => ({
-        ...prev,
-        gateway: { status: 'success', message: `Running on port ${currentGateway.port}` },
-      }));
-    } else if (currentGateway.state === 'error') {
-      setChecks((prev) => ({
-        ...prev,
-        gateway: { status: 'error', message: currentGateway.error || t('runtime.status.error') },
-      }));
-    } else {
-      // Gateway is 'stopped', 'starting', or 'reconnecting'
-      // Keep as 'checking' — the dedicated useEffect will update when status changes
-      setChecks((prev) => ({
-        ...prev,
-        gateway: {
-          status: 'checking',
-          message: currentGateway.state === 'starting' ? t('runtime.status.checking') : 'Waiting for gateway...'
-        },
-      }));
+      setScanData(result.data);
+      const localReady = result.data.local.openClawInstalled && result.data.local.gatewayRunning;
+      setLocalConnected(localReady);
+      const remote = result.data.remote;
+      const remoteAvailable = !!remote?.host;
+      if (remoteAvailable) {
+        setRemoteProtocol(remote?.protocol === 'wss' ? 'wss' : 'ws');
+        setRemoteHost(remote?.host || '');
+        if (remote?.port) setRemotePort(String(remote.port));
+      }
+      const recommended: SetupMode = localReady
+        ? 'local-existing'
+        : result.data.local.openClawInstalled
+          ? 'local-existing'
+          : remoteAvailable
+            ? 'remote-existing'
+            : 'local-install';
+      setRecommendedMode(recommended);
+      setMode((currentMode) => {
+        if (currentMode === 'local-existing' && !result.data.local.openClawInstalled) {
+          return remoteAvailable ? 'remote-existing' : 'local-install';
+        }
+        return currentMode;
+      });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setScanLoading(false);
     }
   }, [t]);
 
   useEffect(() => {
-    runChecks();
-  }, [runChecks]);
+    refreshScan();
+  }, [refreshScan]);
 
-  // Update canProceed when gateway status changes
   useEffect(() => {
-    const allPassed = checks.nodejs.status === 'success'
-      && checks.openclaw.status === 'success'
-      && (checks.gateway.status === 'success' || gatewayStatus.state === 'running');
-    onStatusChange(allPassed);
-  }, [checks, gatewayStatus, onStatusChange]);
-
-  // Update gateway check when gateway status changes
-  useEffect(() => {
-    if (gatewayStatus.state === 'running') {
-      setChecks((prev) => ({
-        ...prev,
-        gateway: { status: 'success', message: t('runtime.status.gatewayRunning', { port: gatewayStatus.port }) },
-      }));
-    } else if (gatewayStatus.state === 'error') {
-      setChecks((prev) => ({
-        ...prev,
-        gateway: { status: 'error', message: gatewayStatus.error || 'Failed to start' },
-      }));
-    } else if (gatewayStatus.state === 'starting' || gatewayStatus.state === 'reconnecting') {
-      setChecks((prev) => ({
-        ...prev,
-        gateway: { status: 'checking', message: 'Starting...' },
-      }));
+    if (mode === 'local-existing' || mode === 'local-install') {
+      onStatusChange(localConnected);
+    } else if (mode === 'remote-existing') {
+      onStatusChange(remoteConnected);
+    } else {
+      onStatusChange(false);
     }
-    // 'stopped' state: keep current check status (likely 'checking') to allow startup time
-  }, [gatewayStatus, t]);
+  }, [mode, localConnected, remoteConnected, onStatusChange]);
 
-  // Gateway startup timeout — show error only after giving enough time to initialize
-  useEffect(() => {
-    if (gatewayTimeoutRef.current) {
-      clearTimeout(gatewayTimeoutRef.current);
-      gatewayTimeoutRef.current = null;
+  const handleConnectLocal = async () => {
+    setActionLoading(true);
+    setError('');
+    try {
+      const res = await invokeIpc<{ success: boolean; error?: string; port?: number }>('setup:connect-local-gateway');
+      if (!res?.success) {
+        setError(res?.error || 'Local gateway connection failed');
+        return;
+      }
+      setLocalConnected(true);
+      toast.success(`Local gateway connected on ${res.port ?? 'unknown port'}`);
+      await refreshScan();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setActionLoading(false);
     }
+  };
 
-    // If gateway is already in a terminal state, no timeout needed
-    if (gatewayStatus.state === 'running' || gatewayStatus.state === 'error') {
+  const handleTestRemote = async () => {
+    if (!remoteHost.trim() || !remotePort.trim()) return;
+    setRemoteTesting(true);
+    setError('');
+    setRemoteConnected(false);
+    try {
+      const res = await invokeIpc<{ success: boolean; error?: string }>('setup:test-remote-gateway', {
+        protocol: remoteProtocol,
+        host: remoteHost.trim(),
+        port: Number(remotePort),
+        token: remoteToken.trim(),
+      });
+      if (!res?.success) {
+        setError(res?.error || 'Remote gateway unavailable');
+        return;
+      }
+      setRemoteConnected(true);
+      toast.success('Remote gateway verified');
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setRemoteTesting(false);
+    }
+  };
+
+  const handleSaveRemote = async () => {
+    if (!remoteConnected) {
+      setError('Please test remote gateway first');
       return;
     }
-
-    // Set timeout for non-terminal states (stopped, starting, reconnecting)
-    gatewayTimeoutRef.current = setTimeout(() => {
-      setChecks((prev) => {
-        if (prev.gateway.status === 'checking') {
-          return {
-            ...prev,
-            gateway: { status: 'error', message: 'Gateway startup timed out' },
-          };
-        }
-        return prev;
+    setActionLoading(true);
+    setError('');
+    try {
+      const res = await invokeIpc<{ success: boolean; error?: string }>('setup:save-remote-gateway', {
+        protocol: remoteProtocol,
+        host: remoteHost.trim(),
+        port: Number(remotePort),
+        token: remoteToken.trim(),
       });
-    }, 600 * 1000); // 600 seconds — enough for gateway to fully initialize
-
-    return () => {
-      if (gatewayTimeoutRef.current) {
-        clearTimeout(gatewayTimeoutRef.current);
-        gatewayTimeoutRef.current = null;
+      if (!res?.success) {
+        setError(res?.error || 'Failed to save remote settings');
+        return;
       }
-    };
-  }, [gatewayStatus.state]);
-
-  const handleStartGateway = async () => {
-    setChecks((prev) => ({
-      ...prev,
-      gateway: { status: 'checking', message: 'Starting...' },
-    }));
-    await startGateway();
-  };
-
-  const handleShowLogs = async () => {
-    try {
-      const logs = await hostApiFetch<{ content: string }>('/api/logs?tailLines=100');
-      setLogContent(logs.content);
-      setShowLogs(true);
-    } catch {
-      setLogContent('(Failed to load logs)');
-      setShowLogs(true);
+      toast.success('Remote gateway connected and saved');
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  const handleOpenLogDir = async () => {
+  const handleInstallLocal = async () => {
+    setActionLoading(true);
+    setError('');
+    setInstallLogs([]);
     try {
-      const { dir: logDir } = await hostApiFetch<{ dir: string | null }>('/api/logs/dir');
-      if (logDir) {
-        await invokeIpc('shell:showItemInFolder', logDir);
+      const res = await invokeIpc<{ success: boolean; error?: string; logs?: string[]; port?: number }>('setup:install-local-openclaw');
+      if (Array.isArray(res?.logs)) setInstallLogs(res.logs);
+      if (!res?.success) {
+        setError(res?.error || 'Local install failed');
+        return;
       }
-    } catch {
-      // ignore
+      setLocalConnected(true);
+      toast.success(`OpenClaw installed and connected (${res.port ?? 'unknown'})`);
+      await refreshScan();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  const ERROR_TRUNCATE_LEN = 30;
-
-  const renderStatus = (status: 'checking' | 'success' | 'error', message: string) => {
-    if (status === 'checking') {
-      return (
-        <span className="flex items-center gap-2 text-yellow-400 whitespace-nowrap">
-          <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin" />
-          {message || 'Checking...'}
-        </span>
-      );
-    }
-    if (status === 'success') {
-      return (
-        <span className="flex items-center gap-2 text-green-400 whitespace-nowrap">
-          <CheckCircle2 className="h-5 w-5 flex-shrink-0" />
-          {message}
-        </span>
-      );
-    }
-
-    const isLong = message.length > ERROR_TRUNCATE_LEN;
-    const displayMsg = isLong ? message.slice(0, ERROR_TRUNCATE_LEN) : message;
-
-    return (
-      <span className="flex items-center gap-2 text-red-400 whitespace-nowrap">
-        <XCircle className="h-5 w-5 flex-shrink-0" />
-        <span>{displayMsg}</span>
-        {isLong && (
-          <span className="cursor-pointer text-red-300 hover:text-red-200 font-medium" title={message}>...</span>
-        )}
-      </span>
-    );
-  };
+  const cloudItems = scanData?.cloudOptions || [];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">{t('runtime.title')}</h2>
-        <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={handleShowLogs}>
-            {t('runtime.viewLogs')}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={runChecks}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            {t('runtime.recheck')}
-          </Button>
-        </div>
-      </div>
-      <div className="space-y-3">
-        <div className="grid grid-cols-[1fr_auto] items-center gap-4 p-3 rounded-lg bg-muted/50">
-          <span className="text-left">{t('runtime.nodejs')}</span>
-          <div className="flex justify-end">
-            {renderStatus(checks.nodejs.status, checks.nodejs.message)}
-          </div>
-        </div>
-        <div className="grid grid-cols-[1fr_auto] items-center gap-4 p-3 rounded-lg bg-muted/50">
-          <div className="text-left min-w-0">
-            <span>{t('runtime.openclaw')}</span>
-            {openclawDir && (
-              <p className="text-xs text-muted-foreground mt-0.5 font-mono break-all">
-                {openclawDir}
-              </p>
-            )}
-          </div>
-          <div className="flex justify-end self-start mt-0.5">
-            {renderStatus(checks.openclaw.status, checks.openclaw.message)}
-          </div>
-        </div>
-        <div className="grid grid-cols-[1fr_auto] items-center gap-4 p-3 rounded-lg bg-muted/50">
-          <div className="flex items-center gap-2 text-left">
-            <span>{t('runtime.gateway')}</span>
-            {checks.gateway.status === 'error' && (
-              <Button variant="outline" size="sm" onClick={handleStartGateway}>
-                {t('runtime.startGateway')}
-              </Button>
-            )}
-          </div>
-          <div className="flex justify-end">
-            {renderStatus(checks.gateway.status, checks.gateway.message)}
-          </div>
-        </div>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">{t('runtime.title', { defaultValue: '环境与连接' })}</h2>
+        <Button variant="ghost" size="sm" onClick={refreshScan} disabled={scanLoading}>
+          {scanLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+          {t('runtime.recheck', { defaultValue: '重新扫描' })}
+        </Button>
       </div>
 
-      {(checks.nodejs.status === 'error' || checks.openclaw.status === 'error') && (
-        <div className="mt-4 p-4 rounded-lg bg-red-900/20 border border-red-500/20">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 text-red-400 mt-0.5" />
-            <div>
-              <p className="font-medium text-red-400">{t('runtime.issue.title')}</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {t('runtime.issue.desc')}
-              </p>
-            </div>
+      {scanData && (
+        <div className="rounded-lg bg-muted/40 p-3 text-sm">
+          <div className="flex flex-wrap items-center gap-4">
+            <span>{scanData.os} / {scanData.arch}</span>
+            <span>OpenClaw: {scanData.local.openClawInstalled ? `installed ${scanData.local.openClawVersion || ''}` : 'not installed'}</span>
+            <span>Gateway: {scanData.local.gatewayRunning ? `running:${scanData.local.gatewayPort}` : 'offline'}</span>
           </div>
+          {scanData.local.openclaw?.path && (
+            <p className="mt-2 text-xs text-muted-foreground font-mono break-all">{scanData.local.openclaw.path}</p>
+          )}
         </div>
       )}
 
-      {/* Log viewer panel */}
-      {showLogs && (
-        <div className="mt-4 p-4 rounded-lg bg-black/40 border border-border">
-          <div className="flex items-center justify-between mb-2">
-            <p className="font-medium text-foreground text-sm">{t('runtime.logs.title')}</p>
-            <div className="flex gap-2">
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={handleOpenLogDir}>
-                <ExternalLink className="h-3 w-3 mr-1" />
-                {t('runtime.logs.openFolder')}
-              </Button>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowLogs(false)}>
-                {t('runtime.logs.close')}
-              </Button>
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <button onClick={() => setMode('local-existing')} className={cn('p-3 rounded-lg border text-left', mode === 'local-existing' ? 'border-primary bg-primary/10' : 'border-border')}>
+          <p className="font-medium">1. {t('runtime.modes.localExisting.title', { defaultValue: '本地已安装，直接对接' })}</p>
+          <p className="text-xs text-muted-foreground mt-1">{t('runtime.modes.localExisting.desc', { defaultValue: '扫描本机 OpenClaw，启动并接入本地 Gateway' })}</p>
+          {recommendedMode === 'local-existing' && <p className="text-[11px] text-emerald-400 mt-1">{t('runtime.recommended', { defaultValue: '推荐' })}</p>}
+        </button>
+        <button onClick={() => setMode('remote-existing')} className={cn('p-3 rounded-lg border text-left', mode === 'remote-existing' ? 'border-primary bg-primary/10' : 'border-border')}>
+          <p className="font-medium">2. {t('runtime.modes.remoteExisting.title', { defaultValue: '远程已安装，对接远程' })}</p>
+          <p className="text-xs text-muted-foreground mt-1">{t('runtime.modes.remoteExisting.desc', { defaultValue: '填写远程 Gateway 地址，测试连接并保存' })}</p>
+          {recommendedMode === 'remote-existing' && <p className="text-[11px] text-emerald-400 mt-1">{t('runtime.recommended', { defaultValue: '推荐' })}</p>}
+        </button>
+        <button onClick={() => setMode('local-install')} className={cn('p-3 rounded-lg border text-left', mode === 'local-install' ? 'border-primary bg-primary/10' : 'border-border')}>
+          <p className="font-medium">3. {t('runtime.modes.localInstall.title', { defaultValue: '本地未安装，下载安装' })}</p>
+          <p className="text-xs text-muted-foreground mt-1">{t('runtime.modes.localInstall.desc', { defaultValue: '自动安装 OpenClaw 并启动 Gateway' })}</p>
+          {recommendedMode === 'local-install' && <p className="text-[11px] text-emerald-400 mt-1">{t('runtime.recommended', { defaultValue: '推荐' })}</p>}
+        </button>
+        <button onClick={() => setMode('cloud-install')} className={cn('p-3 rounded-lg border text-left', mode === 'cloud-install' ? 'border-primary bg-primary/10' : 'border-border')}>
+          <p className="font-medium">4. {t('runtime.modes.cloudInstall.title', { defaultValue: '本地未安装，云安装列表' })}</p>
+          <p className="text-xs text-muted-foreground mt-1">{t('runtime.modes.cloudInstall.desc', { defaultValue: '展示云端部署选项，完成后回到远程对接' })}</p>
+          {recommendedMode === 'cloud-install' && <p className="text-[11px] text-emerald-400 mt-1">{t('runtime.recommended', { defaultValue: '推荐' })}</p>}
+        </button>
+      </div>
+
+      {mode === 'local-existing' && (
+        <div className="rounded-lg border p-4 space-y-3">
+          <p className="text-sm font-medium">步骤说明</p>
+          <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
+            <li>扫描本机是否已安装 OpenClaw 与 Gateway 状态</li>
+            <li>切换到本地连接模式并尝试启动 Gateway</li>
+            <li>连接成功后可进入下一步</li>
+          </ol>
+          <Button onClick={handleConnectLocal} disabled={actionLoading}>
+            {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            连接本地 Gateway
+          </Button>
+          {localConnected && <p className="text-sm text-green-400">已完成本地对接</p>}
+        </div>
+      )}
+
+      {mode === 'remote-existing' && (
+        <div className="rounded-lg border p-4 space-y-3">
+          <p className="text-sm font-medium">步骤说明</p>
+          <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
+            <li>输入远程 Gateway 地址与端口</li>
+            <li>测试远程 WebSocket 连接与鉴权</li>
+            <li>保存远程连接配置并启用</li>
+          </ol>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <select className="h-10 rounded-md border bg-background px-3 text-sm" value={remoteProtocol} onChange={(e) => setRemoteProtocol(e.target.value === 'wss' ? 'wss' : 'ws')}>
+              <option value="ws">ws</option>
+              <option value="wss">wss</option>
+            </select>
+            <Input value={remoteHost} onChange={(e) => setRemoteHost(e.target.value)} placeholder="host / ip" />
+            <Input value={remotePort} onChange={(e) => setRemotePort(e.target.value)} placeholder="port" />
+            <Input value={remoteToken} onChange={(e) => setRemoteToken(e.target.value)} placeholder="token (optional)" />
           </div>
-          <pre className="text-xs text-slate-300 bg-black/50 p-3 rounded max-h-60 overflow-auto whitespace-pre-wrap font-mono">
-            {logContent || t('runtime.logs.noLogs')}
-          </pre>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleTestRemote} disabled={remoteTesting}>
+              {remoteTesting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              测试远程连接
+            </Button>
+            <Button onClick={handleSaveRemote} disabled={actionLoading || !remoteConnected}>
+              保存并启用远程
+            </Button>
+          </div>
+          {remoteConnected && <p className="text-sm text-green-400">远程连接验证通过</p>}
+        </div>
+      )}
+
+      {mode === 'local-install' && (
+        <div className="rounded-lg border p-4 space-y-3">
+          <p className="text-sm font-medium">步骤说明</p>
+          <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
+            <li>检查 Node/NPM 基础环境</li>
+            <li>自动安装 OpenClaw（npm 全局安装）</li>
+            <li>启动本地 Gateway 并完成对接</li>
+          </ol>
+          <Button onClick={handleInstallLocal} disabled={actionLoading}>
+            {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            自动安装并对接本地
+          </Button>
+          {installLogs.length > 0 && (
+            <pre className="text-xs bg-black/50 text-slate-300 p-3 rounded max-h-48 overflow-auto whitespace-pre-wrap">{installLogs.join('\n\n')}</pre>
+          )}
+          {localConnected && <p className="text-sm text-green-400">本地安装与对接完成</p>}
+        </div>
+      )}
+
+      {mode === 'cloud-install' && (
+        <div className="rounded-lg border p-4 space-y-3">
+          <p className="text-sm font-medium">步骤说明</p>
+          <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1">
+            <li>选择云安装方案并完成部署</li>
+            <li>记录云端 Gateway 的 host/port/token</li>
+            <li>返回“远程已安装”完成对接</li>
+          </ol>
+          <div className="space-y-2">
+            {cloudItems.map((item) => (
+              <div key={item.id} className="rounded-lg bg-muted/40 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium">{item.name}</p>
+                    <p className="text-xs text-muted-foreground">{item.description}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => invokeIpc('shell:openExternal', item.docsUrl)}>
+                      文档
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={async () => {
+                      await navigator.clipboard.writeText(item.command);
+                      toast.success('已复制命令');
+                    }}>
+                      复制命令
+                    </Button>
+                  </div>
+                </div>
+                <code className="block mt-2 text-xs font-mono bg-black/40 p-2 rounded">{item.command}</code>
+              </div>
+            ))}
+          </div>
+          <Button variant="outline" onClick={() => setMode('remote-existing')}>我已云端部署，去远程对接</Button>
+        </div>
+      )}
+
+      {!!error && (
+        <div className="rounded-lg bg-red-900/20 border border-red-500/20 p-3 text-sm text-red-300">
+          {error}
         </div>
       )}
     </div>
