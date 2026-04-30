@@ -1247,7 +1247,9 @@ export const ChatView: React.FC = () => {
                     </CollapsibleBlock>
                   </div>
                 )}
-                {streamingDisplayText && thinkingAnimDone && (
+                {/* 无 thinking 时不等待 thinkingAnimDone；思考区不用打字机时 onComplete 不会触发，也不得阻塞正文 */}
+                {streamingDisplayText &&
+                  (!streamingThinking || thinkingAnimDone || !useTypewriterForThinking) && (
                   <div className="msg-bubble">
                     {useTypewriterForText ? (
                       <TypewriterMarkdown content={streamingDisplayText} isStreaming={sending} animate />

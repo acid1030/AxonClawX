@@ -1,5 +1,6 @@
 {
   "name": "axonclaw",
+  "productName": "AxonClawX",
   "version": "1.0.0",
   "description": "AxonClawX - OpenClaw Desktop Client with Electron + React 19",
   "main": "./out/main/index.js",

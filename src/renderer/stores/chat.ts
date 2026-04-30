@@ -100,9 +100,6 @@ interface ChatState {
   showThinking: boolean;
   thinkingLevel: string | null;
 
-  /** 刚添加的 AI 消息 id，用于打字机效果，30 秒后清除 */
-  lastAddedMessageId: string | null;
-
   // Actions
   loadSessions: () => Promise<void>;
   switchSession: (key: string) => void;
@@ -130,6 +127,10 @@ interface ChatState {
 // during tool-use conversations where streamingMessage is temporarily cleared
 // between tool-result finals and the next delta.
 let _lastChatEventAt = 0;
+// Session key that was active when the most recent sendMessage was initiated.
+// Used by handleChatEvent to discard events that belong to a session the user
+// has already navigated away from (handles events that lack a sessionKey field).
+let _sendingSessionKey: string | null = null;
 
 /** Normalize a timestamp to milliseconds. Handles both seconds and ms. */
 function toMs(ts: number): number {
@@ -209,6 +210,35 @@ function saveImageCache(cache: Map<string, AttachedFileMeta>): void {
 }
 
 const _imageCache = loadImageCache();
+
+// ── Local session message cache (localStorage) ───────────────────────────
+// Acts as a persistent fallback so messages survive renderer reloads and
+// transient Gateway unavailability. Also prevents applyLoadedMessages from
+// wiping in-memory messages that the Gateway hasn't persisted yet (race).
+const MSG_CACHE_PREFIX = 'axon.chat.session-msgs.v1.';
+const MSG_CACHE_MAX_PER_SESSION = 200; // max messages stored per session
+
+function msgCacheKey(sessionKey: string): string {
+  return MSG_CACHE_PREFIX + encodeURIComponent(sessionKey);
+}
+
+function saveMsgCache(sessionKey: string, messages: RawMessage[]): void {
+  if (!sessionKey) return;
+  try {
+    const toSave = messages.slice(-MSG_CACHE_MAX_PER_SESSION);
+    localStorage.setItem(msgCacheKey(sessionKey), JSON.stringify(toSave));
+  } catch { /* ignore quota errors */ }
+}
+
+function loadMsgCache(sessionKey: string): RawMessage[] {
+  if (!sessionKey) return [];
+  try {
+    const raw = localStorage.getItem(msgCacheKey(sessionKey));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as RawMessage[]) : [];
+  } catch { return []; }
+}
 
 /** Extract plain text from message content (string or content blocks) */
 function getMessageText(content: unknown): string {
@@ -765,6 +795,9 @@ function buildSessionSwitchPatch(
     ? state.sessions.filter((session) => session.key !== state.currentSessionKey)
     : state.sessions;
 
+  // Clear the module-level "sending origin" so stale events from the previous
+  // session are discarded in handleChatEvent (events that lack a sessionKey).
+  _sendingSessionKey = null;
   return {
     currentSessionKey: nextSessionKey,
     currentAgentId: getAgentIdFromSessionKey(nextSessionKey),
@@ -779,7 +812,7 @@ function buildSessionSwitchPatch(
     streamingText: '',
     streamingMessage: null,
     streamingTools: [],
-    lastAddedMessageId: null,
+    sending: false,
     activeRunId: null,
     error: null,
     pendingFinal: false,
@@ -857,6 +890,69 @@ function extractTextFromContent(content: unknown): string {
     }
   }
   return parts.join('\n');
+}
+
+/** True if the in-flight assistant stream has anything worth persisting locally. */
+function streamingAssistantHasVisiblePayload(stream: RawMessage): boolean {
+  const text = extractTextFromContent(stream.content).trim();
+  if (text.length > 0) return true;
+  const c = stream.content;
+  if (Array.isArray(c)) {
+    for (const b of c as ContentBlock[]) {
+      if (b.type === 'thinking' && b.thinking?.trim()) return true;
+      if ((b.type === 'tool_use' || b.type === 'toolCall') && b.name) return true;
+    }
+  }
+  const rec = stream as Record<string, unknown>;
+  const toolCalls = rec.tool_calls ?? rec.toolCalls;
+  return Array.isArray(toolCalls) && toolCalls.length > 0;
+}
+
+/**
+ * Snapshot partial streaming assistant output into messages[] before clearing
+ * stream state (abort, stale poll, etc.) so the user does not lose text.
+ */
+function flushPartialStreamingToMessages(
+  get: () => ChatState,
+  set: (partial: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void,
+): void {
+  const { streamingMessage, currentSessionKey } = get();
+  if (!streamingMessage || typeof streamingMessage !== 'object') return;
+  const stream = streamingMessage as RawMessage;
+  if (isToolResultRole(stream.role)) return;
+  if (stream.role != null && stream.role !== 'assistant') return;
+  if (!streamingAssistantHasVisiblePayload(stream)) return;
+  const snapId = `local-partial-${Date.now()}`;
+  const snapshot: RawMessage = {
+    ...stream,
+    role: 'assistant',
+    id: snapId,
+    timestamp: stream.timestamp ?? Math.floor(Date.now() / 1000),
+  };
+  set((s) => ({ messages: [...s.messages, snapshot] }));
+  saveMsgCache(currentSessionKey, get().messages);
+}
+
+/** Re-attach assistant rows saved locally after abort/stop; Gateway often has no row for them yet. */
+function appendPreservedLocalPartials(incoming: RawMessage[], previous: RawMessage[]): RawMessage[] {
+  const incomingIds = new Set(
+    incoming.map((m) => m.id).filter((id): id is string => typeof id === 'string' && id.length > 0),
+  );
+  const incomingAssistants = incoming.filter((m) => m.role === 'assistant');
+  const lastIncomingText = incomingAssistants.length
+    ? getMessageText(incomingAssistants[incomingAssistants.length - 1].content).trim()
+    : '';
+  const extra = previous.filter((m) => {
+    if (m.role !== 'assistant' || typeof m.id !== 'string' || !m.id.startsWith('local-partial-')) return false;
+    if (incomingIds.has(m.id)) return false;
+    const ptext = getMessageText(m.content).trim();
+    if (lastIncomingText && ptext) {
+      const prefix = ptext.slice(0, Math.min(ptext.length, 160));
+      if (prefix.length > 0 && lastIncomingText.includes(prefix)) return false;
+    }
+    return true;
+  });
+  return extra.length > 0 ? [...incoming, ...extra] : incoming;
 }
 
 function summarizeToolOutput(text: string): string | undefined {
@@ -1067,7 +1163,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   showThinking: true,
   thinkingLevel: null,
-  lastAddedMessageId: null,
 
   // ── Load sessions via sessions.list ──
 
@@ -1208,8 +1303,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   switchSession: (key: string) => {
     if (key === get().currentSessionKey) return;
-    set((s) => buildSessionSwitchPatch(s, key));
-    get().loadHistory();
+    // Cache-first: pre-populate with localStorage snapshot so the user sees
+    // content instantly while the Gateway RPC runs in the background.
+    const cached = loadMsgCache(key);
+    set((s) => ({
+      ...buildSessionSwitchPatch(s, key),
+      // Override the empty messages from the patch with cached content.
+      // If cache is empty the patch's `messages: []` stays (shows spinner).
+      ...(cached.length > 0 ? { messages: cached, loading: false } : {}),
+    }));
+    // quiet=true when we already have cached content → silent background refresh
+    get().loadHistory(cached.length > 0);
   },
 
   // ── Delete session ──
@@ -1340,7 +1444,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { currentSessionKey } = get();
     const requestSessionKey = currentSessionKey;
     const requestId = beginHistoryRequest(requestSessionKey);
-    if (!quiet) set({ loading: true, error: null });
+    if (!quiet) {
+      // Show cached content immediately (stale-while-revalidate): eliminates
+      // the blank-screen period while the Gateway RPC is in flight.
+      const preCache = loadMsgCache(requestSessionKey);
+      if (preCache.length > 0) {
+        set({ messages: preCache, loading: false, error: null });
+      } else {
+        set({ loading: true, error: null });
+      }
+    }
 
     const applyLoadedMessages = (rawMessages: RawMessage[], thinkingLevel: string | null) => {
       if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
@@ -1371,7 +1484,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
 
+      finalMessages = appendPreservedLocalPartials(finalMessages, get().messages);
+
       set({ messages: finalMessages, thinkingLevel, loading: false });
+      saveMsgCache(requestSessionKey, finalMessages);
 
       // Extract first user message text as a session label for display in the toolbar.
       // Skip main sessions (key ends with ":main") — they rely on the Gateway-provided
@@ -1407,9 +1523,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       loadMissingPreviews(finalMessages).then((updated) => {
         if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
         if (updated) {
-          // Create new object references so React.memo detects changes.
-          // loadMissingPreviews mutates AttachedFileMeta in place, so we
-          // must produce fresh message + file references for each affected msg.
           set({
             messages: finalMessages.map(msg =>
               msg._attachedFiles
@@ -1449,6 +1562,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
         if (recentAssistant) {
           clearHistoryPoll();
+          _sendingSessionKey = null;
           set({ sending: false, activeRunId: null, pendingFinal: false });
         }
       }
@@ -1474,11 +1588,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (fallbackMessages.length > 0) {
           applyLoadedMessages(fallbackMessages, null);
         } else {
+          // Gateway returned nothing — restore from localStorage cache rather
+          // than wiping the message list (protects against transient disconnect).
           const state = get();
           if (state.sending && state.currentSessionKey === requestSessionKey) {
             set({ loading: false });
           } else {
-            set({ messages: [], loading: false });
+            const cached = loadMsgCache(requestSessionKey);
+            set({ messages: cached, loading: false });
           }
         }
       }
@@ -1493,7 +1610,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (state.sending && state.currentSessionKey === requestSessionKey) {
           set({ loading: false });
         } else {
-          set({ messages: [], loading: false });
+          const cached = loadMsgCache(requestSessionKey);
+          set({ messages: cached, loading: false });
         }
       }
     }
@@ -1537,7 +1655,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
 
+      finalMessages = appendPreservedLocalPartials(finalMessages, get().messages);
+
       set({ messages: finalMessages, thinkingLevel, loading: false });
+      saveMsgCache(requestSessionKey, finalMessages);
 
       const isMainSession = requestSessionKey.endsWith(':main');
       if (!isMainSession) {
@@ -1597,7 +1718,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (state.sending && state.currentSessionKey === requestSessionKey) {
             set({ loading: false });
           } else {
-            set({ messages: [], loading: false });
+            const cached = loadMsgCache(requestSessionKey);
+            set({ messages: cached, loading: false });
           }
         }
       }
@@ -1612,7 +1734,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (state.sending && state.currentSessionKey === requestSessionKey) {
           set({ loading: false });
         } else {
-          set({ messages: [], loading: false });
+          const cached = loadMsgCache(requestSessionKey);
+          set({ messages: cached, loading: false });
         }
       }
     }
@@ -1636,6 +1759,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     const currentSessionKey = targetSessionKey;
+    // Record origin session so handleChatEvent can discard events arriving
+    // after the user has switched to a different session.
+    _sendingSessionKey = currentSessionKey;
 
     // Add user message optimistically (with local file metadata for UI display)
     const nowMs = Date.now();
@@ -1683,7 +1809,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const POLL_START_DELAY = 3_000;
     const POLL_INTERVAL = 4_000;
-    const STREAM_STALE_MS = 10_000;
+    const STREAM_STALE_MS = 25_000;
     const pollHistory = () => {
       const state = get();
       if (!state.sending) { clearHistoryPoll(); return; }
@@ -1696,6 +1822,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           return;
         }
         console.warn(`[chat.poll] streaming stale for ${idleMs}ms, fallback to history refresh`);
+        flushPartialStreamingToMessages(get, set);
         set({ streamingMessage: null, streamingText: '' });
       }
 
@@ -1790,12 +1917,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (!result.success) {
         clearHistoryPoll();
+        _sendingSessionKey = null;
         set({ error: result.error || 'Failed to send message', sending: false });
       } else if (result.result?.runId) {
         set({ activeRunId: result.result.runId });
       }
     } catch (err) {
       clearHistoryPoll();
+      _sendingSessionKey = null;
       set({ error: String(err), sending: false });
     }
   },
@@ -1805,6 +1934,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   abortRun: async () => {
     clearHistoryPoll();
     clearErrorRecoveryTimer();
+    flushPartialStreamingToMessages(get, set);
+    _sendingSessionKey = null;
     const { currentSessionKey } = get();
     set({ sending: false, streamingText: '', streamingMessage: null, pendingFinal: false, lastUserMessageAt: null, pendingToolImages: [] });
     set({ streamingTools: [] });
@@ -1816,6 +1947,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
     } catch (err) {
       set({ error: String(err) });
+    } finally {
+      void get().loadHistory(true);
     }
   },
 
@@ -1829,6 +1962,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Only process events for the current session (when sessionKey is present)
     if (eventSessionKey != null && eventSessionKey !== currentSessionKey) return;
+    // Ambiguous event (no session key): discard if it came from a session the
+    // user has already navigated away from.
+    if (eventSessionKey == null && _sendingSessionKey != null && _sendingSessionKey !== currentSessionKey) return;
     // Ambiguous event (no session key, no active run, and we are idle) — ignore
     // to avoid stale cross-session content being appended unexpectedly.
     if (eventSessionKey == null && !activeRunId && !sending) return;
@@ -1965,6 +2101,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 streamingTools: updates.length > 0 ? upsertToolStatuses(s.streamingTools, updates) : s.streamingTools,
               };
             });
+            saveMsgCache(currentSessionKey, get().messages);
+            void loadMissingPreviews(get().messages).then((updated) => {
+              if (!updated) return;
+              set((s) => ({
+                messages: s.messages.map(msg =>
+                  msg._attachedFiles
+                    ? { ...msg, _attachedFiles: msg._attachedFiles.map(f => ({ ...f })) }
+                    : msg,
+                ),
+              }));
+            });
             break;
           }
           const toolOnly = isToolOnlyMessage(finalMsg);
@@ -2021,15 +2168,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
               pendingFinal: hasOutput ? false : true,
               streamingTools,
               ...clearPendingImages,
-              lastAddedMessageId: hasOutput ? msgId : s.lastAddedMessageId,
             };
+          });
+          // Persist committed messages to localStorage immediately so a
+          // renderer reload (e.g. refresh) can restore them before Gateway
+          // has a chance to return the history via chat.history RPC.
+          saveMsgCache(currentSessionKey, get().messages);
+          // Eagerly load any missing image previews for the just-committed
+          // messages (e.g. tool-output images whose filePath needs a data: URL).
+          // loadMissingPreviews calls /api/files/thumbnails; it is idempotent.
+          void loadMissingPreviews(get().messages).then((updated) => {
+            if (!updated) return;
+            set((s) => ({
+              messages: s.messages.map(msg =>
+                msg._attachedFiles
+                  ? { ...msg, _attachedFiles: msg._attachedFiles.map(f => ({ ...f })) }
+                  : msg,
+              ),
+            }));
           });
           if (hasOutput && !toolOnly) {
             clearHistoryPoll();
-            // 已有完整消息，不再调用 loadHistory 覆盖，避免输出中途被截断
-            setTimeout(() => {
-              useChatStore.setState({ lastAddedMessageId: null });
-            }, 30_000);
+            _sendingSessionKey = null;
+            // Quietly reload to get Gateway's authoritative record (with stable IDs)
+            void get().loadHistory(true);
           }
         } else {
           // No message in final event - reload history to get complete data
@@ -2078,6 +2240,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const state = get();
             if (state.sending && !state.streamingMessage) {
               clearHistoryPoll();
+              _sendingSessionKey = null;
               // Grace period expired with no recovery — finalize the error
               set({
                 sending: false,
@@ -2091,6 +2254,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }, ERROR_RECOVERY_GRACE_MS);
         } else {
           clearHistoryPoll();
+          _sendingSessionKey = null;
           set({ sending: false, activeRunId: null, lastUserMessageAt: null });
         }
         break;
@@ -2098,6 +2262,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       case 'aborted': {
         clearHistoryPoll();
         clearErrorRecoveryTimer();
+        flushPartialStreamingToMessages(get, set);
+        _sendingSessionKey = null;
         set({
           sending: false,
           activeRunId: null,

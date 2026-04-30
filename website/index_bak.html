@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AxonClawX — 基于 OpenClaw 的桌面 AI 客户端。Electron + React 19，配置中心、多代理协作、技能市场、网关监控，本地优先。" />
+  <meta name="theme-color" content="#450a0a" />
+  <meta property="og:title" content="AxonClawX — OpenClaw 桌面客户端" />
+  <meta property="og:description" content="本地 AI 中枢：配置中心、多代理协作、技能与网关监控。" />
+  <meta property="og:type" content="website" />
+  <title>AxonClawX — OpenClaw 桌面客户端 | 本地 AI 中枢</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-deep: #0a0506;
+      --bg-panel: #14080c;
+      --bg-card: rgba(45, 12, 18, 0.55);
+      --border: rgba(220, 38, 38, 0.22);
+      --crimson: #dc2626;
+      --crimson-dim: #991b1b;
+      --wine: #7f1d1d;
+      --rose-glow: rgba(248, 113, 113, 0.15);
+      --text: #f8f4f5;
+      --muted: #c4a8a8;
+      --accent: #fbbf24;
+      --accent-soft: rgba(251, 191, 36, 0.12);
+      --radius: 14px;
+      --font-sans: "DM Sans", system-ui, sans-serif;
+      --font-display: "Instrument Serif", Georgia, serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-deep);
+      color: var(--text);
+      line-height: 1.65;
+      overflow-x: hidden;
+    }
+
+    /* 背景纹理与光晕 */
+    .bg-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 120% 80% at 50% -20%, rgba(127, 29, 29, 0.45), transparent 55%),
+        radial-gradient(ellipse 70% 50% at 100% 30%, rgba(185, 28, 28, 0.18), transparent),
+        radial-gradient(ellipse 60% 40% at 0% 70%, rgba(69, 10, 10, 0.5), transparent),
+        linear-gradient(180deg, #120608 0%, var(--bg-deep) 40%, #0d0507 100%);
+    }
+    .bg-grid {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.04;
+      background-image:
+        linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
+
+    .wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+    /* 导航 */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(14px);
+      background: rgba(10, 5, 6, 0.75);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 16px 24px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .logo-mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--crimson), #450a0a);
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+      box-shadow: 0 0 24px rgba(220, 38, 38, 0.35);
+    }
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-left: 22px;
+      transition: color 0.2s;
+    }
+    nav a:hover { color: var(--text); }
+    .nav-burger {
+      display: none;
+      width: 44px;
+      height: 44px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(127, 29, 29, 0.2);
+      color: var(--text);
+      font-size: 1.25rem;
+      cursor: pointer;
+      margin-left: 8px;
+    }
+    .nav-burger:hover { border-color: var(--crimson-dim); }
+    .nav-mobile {
+      display: none;
+      flex-direction: column;
+      gap: 0;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(10, 5, 6, 0.95);
+    }
+    .nav-mobile a {
+      display: block;
+      padding: 14px 0;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.95rem;
+      border-top: 1px solid rgba(220, 38, 38, 0.1);
+    }
+    .nav-mobile a:first-of-type { border-top: none; }
+    .nav-mobile.open { display: flex; }
+    @media (min-width: 721px) {
+      .nav-mobile { display: none !important; }
+    }
+    .nav-actions { display: flex; align-items: center; gap: 8px; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.2s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--crimson), var(--wine));
+      color: #fff;
+      box-shadow: 0 4px 24px rgba(220, 38, 38, 0.35);
+    }
+    .btn-primary:hover { box-shadow: 0 6px 32px rgba(220, 38, 38, 0.5); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { border-color: var(--crimson-dim); background: var(--accent-soft); }
+
+    /* Hero */
+    .hero {
+      padding: 72px 0 88px;
+      text-align: center;
+    }
+    .badge {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid rgba(251, 191, 36, 0.25);
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-family: var(--font-display);
+      font-size: clamp(2.4rem, 5.5vw, 3.6rem);
+      font-weight: 400;
+      line-height: 1.12;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+      background: linear-gradient(135deg, #fff 0%, #fecaca 45%, #f87171 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero .lead {
+      font-size: 1.15rem;
+      color: var(--muted);
+      max-width: 640px;
+      margin: 0 auto 36px;
+    }
+    .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-bottom: 48px; }
+    .hero-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 16px;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .stat {
+      padding: 18px;
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+    }
+    .stat strong { display: block; font-size: 1.5rem; color: #fecaca; }
+    .stat span { font-size: 0.82rem; color: var(--muted); }
+
+    section { padding: 72px 0; }
+    section h2 {
+      font-family: var(--font-display);
+      font-size: clamp(1.85rem, 3.5vw, 2.5rem);
+      text-align: center;
+      margin-bottom: 12px;
+      font-weight: 400;
+    }
+    .section-desc {
+      text-align: center;
+      color: var(--muted);
+      max-width: 620px;
+      margin: 0 auto 48px;
+      font-size: 1.02rem;
+    }
+
+    /* 能力卡片 */
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      padding: 26px;
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .card:hover {
+      border-color: rgba(220, 38, 38, 0.45);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    }
+    .card-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(220, 38, 38, 0.25), rgba(69, 10, 10, 0.6));
+      display: grid;
+      place-items: center;
+      font-size: 22px;
+      margin-bottom: 16px;
+    }
+    .card h3 { font-size: 1.12rem; margin-bottom: 10px; font-weight: 600; }
+    .card p { color: var(--muted); font-size: 0.94rem; }
+    .card ul { margin-top: 14px; padding-left: 18px; color: var(--muted); font-size: 0.88rem; }
+    .card li { margin-bottom: 6px; }
+
+    /* 步骤 */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+      counter-reset: step;
+    }
+    .step {
+      position: relative;
+      padding: 28px 24px 28px 72px;
+      border-radius: var(--radius);
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+    }
+    .step::before {
+      counter-increment: step;
+      content: counter(step, decimal-leading-zero);
+      position: absolute;
+      left: 20px;
+      top: 26px;
+      font-family: var(--font-display);
+      font-size: 2rem;
+      color: var(--crimson);
+      opacity: 0.9;
+    }
+    .step h3 { font-size: 1.05rem; margin-bottom: 8px; }
+    .step p { color: var(--muted); font-size: 0.92rem; }
+
+    /* 对比表 */
+    .compare {
+      overflow: hidden;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+    }
+    .compare-row {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .compare-row:last-child { border-bottom: none; }
+    .compare-row.head { background: rgba(127, 29, 29, 0.25); font-weight: 600; font-size: 0.85rem; }
+    .compare-cell {
+      padding: 14px 18px;
+      font-size: 0.86rem;
+      color: var(--muted);
+      border-right: 1px solid var(--border);
+    }
+    .compare-cell:last-child { border-right: none; }
+    .compare-row:not(.head) .compare-cell:first-child { color: #fecaca; font-weight: 500; }
+    .tag-yes { color: #86efac !important; }
+    .tag-partial { color: #fcd34d !important; }
+
+    /* 生态标签云 */
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 28px;
+    }
+    .pill {
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      color: #fecaca;
+      background: rgba(127, 29, 29, 0.35);
+      border: 1px solid var(--border);
+    }
+
+    /* FAQ */
+    details {
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    details summary {
+      padding: 18px 22px;
+      cursor: pointer;
+      font-weight: 600;
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    details summary::-webkit-details-marker { display: none; }
+    details summary::after { content: "+"; font-size: 1.2rem; color: var(--crimson); }
+    details[open] summary::after { content: "−"; }
+    details p {
+      padding: 0 22px 18px;
+      color: var(--muted);
+      font-size: 0.94rem;
+      border-top: 1px solid rgba(220, 38, 38, 0.12);
+      padding-top: 14px;
+    }
+
+    /* CTA 底部 */
+    .cta-band {
+      margin: 48px 0 0;
+      padding: 56px 32px;
+      border-radius: 20px;
+      text-align: center;
+      background: linear-gradient(135deg, rgba(127, 29, 29, 0.5), rgba(69, 10, 10, 0.85));
+      border: 1px solid rgba(248, 113, 113, 0.25);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    }
+    .cta-band h2 { margin-bottom: 12px; }
+    .cta-band p { color: #fecaca; margin-bottom: 24px; }
+
+    footer {
+      padding: 40px 24px 48px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+    footer a { color: #fca5a5; text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 720px) {
+      nav .nav-links { display: none; }
+      .nav-burger { display: flex; }
+      header .btn-primary { padding: 8px 14px; font-size: 0.82rem; }
+      .compare-row { grid-template-columns: 1fr; }
+      .compare-row.head { display: none; }
+      .compare-cell { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-layer" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <header>
+    <div class="nav-inner">
+      <a class="logo" href="#top">
+        <span class="logo-mark" aria-hidden="true">⚡</span>
+        AxonClawX
+      </a>
+      <nav class="nav-links" aria-label="页面导航">
+        <a href="#features">核心能力</a>
+        <a href="#ecosystem">生态</a>
+        <a href="#modules">功能模块</a>
+        <a href="#stack">技术栈</a>
+        <a href="#compare">对比</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="btn btn-ghost" href="https://github.com/acid1030/AxonClawX" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a class="btn btn-primary" href="#download">获取客户端</a>
+        <button type="button" class="nav-burger" id="navBurger" aria-expanded="false" aria-controls="navMobile" aria-label="打开菜单">☰</button>
+      </div>
+    </div>
+    <nav class="nav-mobile" id="navMobile" aria-label="移动端导航" hidden>
+      <a href="https://github.com/acid1030/AxonClawX" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="#features">核心能力</a>
+      <a href="#ecosystem">OpenClaw 生态</a>
+      <a href="#modules">功能模块</a>
+      <a href="#stack">技术栈</a>
+      <a href="#compare">对比</a>
+      <a href="#download">三步上手</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero wrap">
+      <span class="badge">Electron · React 19 · OpenClaw</span>
+      <h1>你的本地 AI 中枢，<br />从配置到协作一站完成</h1>
+      <p class="lead">
+        AxonClawX 是面向 OpenClaw 生态的桌面客户端：可视化配置中心、多代理工作流、技能与知识管理、网关监控与告警——数据留在本机，能力不输云端。
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#download">立即开始</a>
+        <a class="btn btn-ghost" href="#modules">浏览功能</a>
+        <a class="btn btn-ghost" href="https://github.com/acid1030/AxonClawX" target="_blank" rel="noopener noreferrer">GitHub 源码</a>
+      </div>
+      <div class="hero-stats">
+        <div class="stat"><strong>React 19</strong><span>现代前端架构</span></div>
+        <div class="stat"><strong>全量配置</strong><span>模型 / 渠道 / Gateway</span></div>
+        <div class="stat"><strong>中英双语</strong><span>界面一键切换</span></div>
+        <div class="stat"><strong>MIT</strong><span>开源可审计</span></div>
+      </div>
+    </section>
+
+    <section id="features" class="wrap">
+      <h2>为重度用户设计的桌面体验</h2>
+      <p class="section-desc">
+        参考 <a href="https://claw-x.com/" style="color:#fca5a5;">ClawX</a> 所强调的「本地运行、持续在线、可扩展」理念，AxonClawX 将 OpenClaw 能力封装进原生桌面壳，适合研发、自动化与知识工作者。
+      </p>
+      <div class="grid-3">
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">🎛️</div>
+          <h3>统一配置中心</h3>
+          <p>模型、渠道、会话、模板、Hooks、Gateway、记忆策略、工具与扩展——分类清晰，与 AxonClawX 配置体验对齐。</p>
+          <ul>
+            <li>JSON 与可视化双模式</li>
+            <li>多模型与代理关联</li>
+          </ul>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">🤝</div>
+          <h3>代理与多代理协作</h3>
+          <p>代理列表与详情、工作流编排、节点拓扑与 Cron 定时——适合复杂任务拆解与长期自动化。</p>
+          <ul>
+            <li>Workflow 多步执行</li>
+            <li>Cron 与执行历史</li>
+          </ul>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">📦</div>
+          <h3>技能 · 工具 · 市场</h3>
+          <p>技能中心聚合 tools、plugins 与市场接入；知识中心覆盖 FAQ、Snippet、Recipe 等结构化知识。</p>
+          <ul>
+            <li>可扩展技能生态</li>
+            <li>记忆与上下文沉淀</li>
+          </ul>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">📡</div>
+          <h3>网关监控与诊断</h3>
+          <p>网关状态、事件流、调试面板；配合活动监控、告警与系统诊断，运行态一目了然。</p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">🌐</div>
+          <h3>国际化与主题</h3>
+          <p>i18next 驱动，中英文切换；配合系统/深色主题与现代化 UI 组件（Radix + Tailwind）。</p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">🔒</div>
+          <h3>本地优先</h3>
+          <p>桌面端本地运行，API Key 与业务数据由你掌控；开源 MIT，便于二次开发与合规审查。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="ecosystem" class="wrap">
+      <h2>与 OpenClaw 生态同行</h2>
+      <p class="section-desc">
+        本仓库 <a href="https://github.com/acid1030/AxonClawX" style="color:#fca5a5;" rel="noopener noreferrer">github.com/acid1030/AxonClawX</a> 提供 AxonClawX 客户端源码；作为桌面壳，承接上游 <a href="https://github.com/openclaw/openclaw" style="color:#fca5a5;" rel="noopener noreferrer">OpenClaw</a> 的网关与代理能力。你可按需接入技能、MCP 工具与渠道，在本地完成编排与观测。
+      </p>
+      <div class="card" style="max-width: 800px; margin: 0 auto; text-align: center;">
+        <p style="color: var(--muted); font-size: 0.95rem; margin-bottom: 8px;">
+          与 <a href="https://claw-x.com/" style="color:#fca5a5;">ClawX</a> 类似，我们强调「本机运行、可持续在线」——区别在于 AxonClawX 更聚焦 <strong style="color:#fecaca;">OpenClaw 全量配置与工作流控制台</strong>，适合已自建网关与模型的团队。
+        </p>
+        <div class="pill-row" aria-label="能力关键词">
+          <span class="pill">Model Context Protocol</span>
+          <span class="pill">Skills / Tools / Plugins</span>
+          <span class="pill">Gateway 与事件流</span>
+          <span class="pill">Hooks 与自动化</span>
+          <span class="pill">知识库与记忆</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="modules" class="wrap">
+      <h2>功能模块一览</h2>
+      <p class="section-desc">从概览对话到系统设置，覆盖 OpenClaw 日常使用与运维场景。</p>
+      <div class="grid-3">
+        <article class="card">
+          <h3>概览与对话</h3>
+          <p>Dashboard 总览、Chat 会话、历史 Sessions 与上下文切换。</p>
+        </article>
+        <article class="card">
+          <h3>配置中心</h3>
+          <p>ConfigurationCenter 统一入口：模型、渠道、代理、模板、Hooks、Gateway、会话与日志等。</p>
+        </article>
+        <article class="card">
+          <h3>内容与扩展</h3>
+          <p>Content、Extensions、Nodes 等模块支撑内容与分布式节点视图。</p>
+        </article>
+        <article class="card">
+          <h3>监控与系统</h3>
+          <p>GatewayMonitoring、ActivityMonitor、Alerts、Diagnostics、System、Settings、Usage。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="stack" class="wrap">
+      <h2>技术栈</h2>
+      <p class="section-desc">成熟栈组合，便于贡献者与集成方快速上手。</p>
+      <div class="card" style="max-width: 720px; margin: 0 auto;">
+        <ul style="columns: 2; gap: 24px; color: var(--muted); font-size: 0.92rem;">
+          <li style="margin-bottom: 8px;">Electron 33</li>
+          <li style="margin-bottom: 8px;">React 19 + TypeScript 5</li>
+          <li style="margin-bottom: 8px;">Vite 5</li>
+          <li style="margin-bottom: 8px;">Zustand 状态管理</li>
+          <li style="margin-bottom: 8px;">i18next / react-i18next</li>
+          <li style="margin-bottom: 8px;">Tailwind CSS + Radix UI</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="compare" class="wrap">
+      <h2>定位对比（示意）</h2>
+      <p class="section-desc">帮助你理解 AxonClawX 在生态中的位置——非云托管聊天窗，而是本地 OpenClaw 控制台。</p>
+      <div class="compare" role="table" aria-label="产品对比">
+        <div class="compare-row head">
+          <div class="compare-cell">维度</div>
+          <div class="compare-cell">AxonClawX</div>
+          <div class="compare-cell">典型纯网页 Agent</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-cell">运行环境</div>
+          <div class="compare-cell tag-yes">本机桌面，长期驻留</div>
+          <div class="compare-cell">依赖浏览器与站点可用性</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-cell">配置深度</div>
+          <div class="compare-cell tag-yes">全量配置中心 + JSON</div>
+          <div class="compare-cell tag-partial">通常较浅或分散</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-cell">网关 / 诊断</div>
+          <div class="compare-cell tag-yes">内置监控与告警视图</div>
+          <div class="compare-cell">多数不提供</div>
+        </div>
+        <div class="compare-row">
+          <div class="compare-cell">数据驻留</div>
+          <div class="compare-cell tag-yes">本地优先，自主可控</div>
+          <div class="compare-cell">多依赖云端会话</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="wrap">
+      <h2>三步上手</h2>
+      <p class="section-desc">克隆仓库后按 README 本地构建；亦可根据团队流程打包分发。</p>
+      <div class="steps">
+        <div class="step">
+          <h3>克隆与安装依赖</h3>
+          <p>克隆仓库 <code style="color:#fecaca;">git clone https://github.com/acid1030/AxonClawX.git</code>，进入目录后在 Node.js 环境下执行 <code style="color:#fecaca;">npm install</code>，准备 Electron 与原生模块构建。</p>
+        </div>
+        <div class="step">
+          <h3>开发调试</h3>
+          <p>运行 <code style="color:#fecaca;">npm run electron:dev</code> 启动 Vite + Electron 联调。</p>
+        </div>
+        <div class="step">
+          <h3>打包发布</h3>
+          <p>使用 <code style="color:#fecaca;">npm run electron:build</code> 及平台子命令产出安装包。</p>
+        </div>
+      </div>
+      <div class="cta-band" style="margin-top: 56px;">
+        <h2 style="font-family: var(--font-display); font-size: 1.75rem;">准备好部署你的本地 AI 中枢了吗？</h2>
+        <p>将 AxonClawX 装在一台常开机器上，即可获得稳定、可配置的 OpenClaw 桌面体验。</p>
+        <a class="btn btn-primary" href="#download" style="background: #fff; color: #7f1d1d; box-shadow: none;">查看本地构建步骤</a>
+      </div>
+    </section>
+
+    <section id="faq" class="wrap">
+      <h2>常见问题</h2>
+      <p class="section-desc">若你与 <a href="https://claw-x.com/" style="color:#fca5a5;">ClawX</a> 类桌面助手对比，可参考下列说明。</p>
+      <details>
+        <summary>AxonClawX 与 OpenClaw / ClawX 是什么关系？</summary>
+        <p>AxonClawX 是面向 OpenClaw 的 Electron 桌面客户端实现之一，聚焦配置管理、协作与监控；ClawX 等产品侧重研究型场景与渠道推送。二者可同属生态，定位不同。</p>
+      </details>
+      <details>
+        <summary>是否必须会写代码？</summary>
+        <p>日常使用以图形界面为主；高级用户可通过 JSON 与 Hooks 深度定制。开发与打包需要基本 Node.js 知识。</p>
+      </details>
+      <details>
+        <summary>数据安全吗？</summary>
+        <p>客户端本地运行，敏感配置与密钥由你保管；具体合规要求请结合内网策略与密钥管理实践评估。</p>
+      </details>
+      <details>
+        <summary>支持哪些操作系统？</summary>
+        <p>基于 Electron，可按 README 在 macOS、Windows、Linux 上开发与打包；具体安装包以你方 CI 产出为准。</p>
+      </details>
+      <details>
+        <summary>和纯 OpenClaw CLI 相比优势是什么？</summary>
+        <p>图形化配置中心、会话与代理管理、监控与告警一屏查看，降低运维与排障成本；CLI 仍可在本机并行使用。</p>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <p>© <span id="y"></span> AxonClawX · MIT License · 基于 OpenClaw 生态 · <a href="https://github.com/acid1030/AxonClawX" target="_blank" rel="noopener noreferrer">GitHub</a></p>
+    <p style="margin-top: 8px;">鄂ICP备2026019404号-1</p>
+    <p style="margin-top: 8px;">设计灵感参考 <a href="https://claw-x.com/">claw-x.com</a> 的信息架构与叙事节奏</p>
+  </footer>
+  <script>
+    document.getElementById("y").textContent = new Date().getFullYear();
+    (function () {
+      var burger = document.getElementById("navBurger");
+      var panel = document.getElementById("navMobile");
+      if (!burger || !panel) return;
+      function setOpen(open) {
+        panel.hidden = !open;
+        panel.classList.toggle("open", open);
+        burger.setAttribute("aria-expanded", open ? "true" : "false");
+        burger.setAttribute("aria-label", open ? "关闭菜单" : "打开菜单");
+      }
+      burger.addEventListener("click", function () {
+        setOpen(panel.hidden);
+      });
+      panel.querySelectorAll("a").forEach(function (a) {
+        a.addEventListener("click", function () { setOpen(false); });
+      });
+    })();
+  </script>
+</body>
+</html>

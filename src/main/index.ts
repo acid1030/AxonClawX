@@ -6,6 +6,10 @@ import { createHash, randomBytes } from 'crypto';
 import * as http from 'http';
 import type { Server as HttpServer, IncomingMessage, ServerResponse } from 'http';
 
+/** 用户可见的应用名（菜单栏、about、默认窗口标题）。须在 app ready 之前调用 setName。 */
+const APP_DISPLAY_NAME = 'AxonClawX';
+app.setName(APP_DISPLAY_NAME);
+
 // 捕获 EPIPE 等写入已关闭管道错误，避免未处理异常导致进程退出
 process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
   const code = err?.code;
@@ -1368,6 +1372,7 @@ function createWindow(): BrowserWindow {
   const windowIcon = resolveWindowIconPath();
 
   const win = new BrowserWindow({
+    title: APP_DISPLAY_NAME,
     width: 1400,
     height: 900,
     minWidth: 1000,
@@ -9271,6 +9276,42 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
       } catch (err) {
         console.error('[HostAPI] stage-buffer error:', err);
         return { ok: false, data: { status: 500, json: null }, success: false };
+      }
+    }
+
+    if (path === '/api/files/thumbnails' && method === 'POST' && body) {
+      try {
+        const { paths } = JSON.parse(body) as { paths?: Array<{ filePath: string; mimeType: string }> };
+        if (!Array.isArray(paths) || paths.length === 0) {
+          return { ok: false, data: { status: 400, json: {} }, success: false };
+        }
+        const mimeMap: Record<string, string> = {
+          '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+          '.svg': 'image/svg+xml',
+        };
+        const result: Record<string, { preview: string | null; fileSize: number }> = {};
+        for (const { filePath, mimeType } of paths) {
+          if (!filePath) continue;
+          try {
+            const stat = fs.statSync(filePath);
+            const fileSize = stat.size;
+            let preview: string | null = null;
+            const ext = nodePath.extname(filePath).toLowerCase();
+            const resolvedMime = mimeType || mimeMap[ext] || 'application/octet-stream';
+            if (resolvedMime.startsWith('image/')) {
+              const buf = fs.readFileSync(filePath);
+              preview = `data:${resolvedMime};base64,${buf.toString('base64')}`;
+            }
+            result[filePath] = { preview, fileSize };
+          } catch {
+            result[filePath] = { preview: null, fileSize: 0 };
+          }
+        }
+        return { ok: true, data: { status: 200, json: result }, success: true, json: result };
+      } catch (err) {
+        console.error('[HostAPI] thumbnails error:', err);
+        return { ok: false, data: { status: 500, json: {} }, success: false };
       }
     }
 
