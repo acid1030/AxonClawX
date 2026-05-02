@@ -449,10 +449,12 @@ class GatewayLifecycleManager extends EventEmitter {
 
   /**
    * Wait for Gateway to be ready by polling health endpoint
+   * (LanceDB / memory-lancedb and other plugins can push first /health >30s on cold start.)
    */
   private async waitForReady(): Promise<void> {
-    const maxAttempts = 60;
     const intervalMs = 500;
+    const maxWaitMs = 120_000;
+    const maxAttempts = Math.ceil(maxWaitMs / intervalMs);
     
     for (let i = 0; i < maxAttempts; i++) {
       if (this.startupFailureReason) {
