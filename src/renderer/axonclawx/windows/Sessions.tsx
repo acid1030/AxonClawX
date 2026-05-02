@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast';
 import { useConfirm } from '../components/ConfirmDialog';
 import EmptyState from '../components/EmptyState';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatDeepSeekReasoningReplayError, isDeepSeekReasoningReplayError } from '../../lib/deepseek-reasoning-error';
 
 interface SessionsProps {
   language: Language;
@@ -37,6 +38,8 @@ interface ChatMsg {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: unknown;
   timestamp?: number;
+  reasoning_content?: unknown;
+  [key: string]: unknown;
 }
 
 type ChatRunPhase = 'idle' | 'sending' | 'streaming' | 'error';
@@ -506,6 +509,7 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
       const res = await gwApi.proxy('chat.history', { sessionKey, limit: 200 }) as any;
       const msgs = Array.isArray(res?.messages) ? res.messages : [];
       setMessages(msgs.map((m: any) => ({
+        ...m,
         role: m.role || 'assistant',
         content: m.content,
         timestamp: m.timestamp || m.ts,
@@ -770,10 +774,59 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
         startedAt: Date.now(),
       };
     } catch (err: any) {
+      const errText = String(err?.message || err || '');
+      if (isDeepSeekReasoningReplayError(errText)) {
+        try {
+          await gwApi.proxy('sessions.compact', { key: sessionKey });
+          const retry = await gwApi.proxy('chat.send', {
+            sessionKey,
+            message: msg,
+            idempotencyKey: `${idempotencyKey}-retry`,
+          }) as any;
+          const retryRunId = retry?.runId || `${idempotencyKey}-retry`;
+          setRunId(retryRunId);
+          setRunPhase('streaming');
+          setError(null);
+          pendingRunRef.current = {
+            runId: retryRunId,
+            beforeCount: messages.length + 1,
+            startedAt: Date.now(),
+          };
+          return;
+        } catch {
+          // continue to recovery session flow
+        }
+        try {
+          const recoveryKey = `main:session-${Date.now()}-recovery`;
+          setSessionKey(recoveryKey);
+          setMessages([{ role: 'user', content: [{ type: 'text', text: msg }], timestamp: Date.now() }]);
+          const recovery = await gwApi.proxy('chat.send', {
+            sessionKey: recoveryKey,
+            message: msg,
+            idempotencyKey: `${idempotencyKey}-recovery`,
+          }) as any;
+          const recoveryRunId = recovery?.runId || `${idempotencyKey}-recovery`;
+          setRunId(recoveryRunId);
+          setRunPhase('streaming');
+          setError(null);
+          pendingRunRef.current = {
+            runId: recoveryRunId,
+            beforeCount: 1,
+            startedAt: Date.now(),
+          };
+          return;
+        } catch {
+          // continue to normal error path
+        }
+      }
       setStream(null);
       setRunPhase('error');
-      setError(err?.message || c.error);
-      setMessages(prev => [...prev, { role: 'assistant', content: [{ type: 'text', text: 'Error: ' + (err?.message || c.error) }], timestamp: Date.now() }]);
+      const resolvedError = formatDeepSeekReasoningReplayError(errText || c.error);
+      setError(resolvedError);
+      const bubbleText = isDeepSeekReasoningReplayError(errText)
+        ? 'Error: DeepSeek 思考模式需回传 reasoning_content，详见上方完整说明。'
+        : `Error: ${errText || c.error}`;
+      setMessages(prev => [...prev, { role: 'assistant', content: [{ type: 'text', text: bubbleText }], timestamp: Date.now() }]);
       pendingRunRef.current = null;
       // If gateway connection just flapped, force a status refresh sooner.
       gwApi.status().then((res: any) => {

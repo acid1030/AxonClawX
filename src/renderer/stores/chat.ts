@@ -8,6 +8,7 @@ import { hostApiFetch } from '@/lib/host-api';
 import { useGatewayStore } from './gateway';
 import { useAgentsStore } from './agents';
 import { buildCronSessionHistoryPath, isCronSessionKey } from './chat/cron-session-utils';
+import { formatDeepSeekReasoningReplayError, isDeepSeekReasoningReplayError } from '@/lib/deepseek-reasoning-error';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ export interface RawMessage {
   isError?: boolean;
   /** Local-only: file metadata for user-uploaded attachments (not sent to/from Gateway) */
   _attachedFiles?: AttachedFileMeta[];
+  reasoning_content?: unknown;
 }
 
 /** Content block inside a message */
@@ -1857,6 +1859,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const idempotencyKey = crypto.randomUUID();
       const hasMedia = attachments && attachments.length > 0;
+      const sendPayloadBase: Record<string, unknown> = {
+        sessionKey: currentSessionKey,
+        deliver: false,
+        idempotencyKey,
+      };
+
       if (hasMedia) {
         console.log('[sendMessage] Media paths:', attachments!.map(a => a.stagedPath));
       }
@@ -1888,28 +1896,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         );
         const messageWithMedia = (trimmed || 'Process the attached file(s).') + '\n' + mediaTagLines.join('\n');
         console.log('[sendMessage] Sending with media tags via RPC:', messageWithMedia);
-        const rpcResult = await useGatewayStore.getState().rpc<{ runId?: string }>(
-          'chat.send',
-          {
-            sessionKey: currentSessionKey,
-            message: messageWithMedia,
-            deliver: false,
-            idempotencyKey,
-          },
-          CHAT_SEND_TIMEOUT_MS,
-        );
+        const rpcResult = await useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', {
+          ...sendPayloadBase,
+          message: messageWithMedia,
+        }, CHAT_SEND_TIMEOUT_MS);
         result = { success: true, result: rpcResult };
       } else {
-        const rpcResult = await useGatewayStore.getState().rpc<{ runId?: string }>(
-          'chat.send',
-          {
-            sessionKey: currentSessionKey,
-            message: trimmed,
-            deliver: false,
-            idempotencyKey,
-          },
-          CHAT_SEND_TIMEOUT_MS,
-        );
+        const rpcResult = await useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', {
+          ...sendPayloadBase,
+          message: trimmed,
+        }, CHAT_SEND_TIMEOUT_MS);
         result = { success: true, result: rpcResult };
       }
 
@@ -1923,9 +1919,64 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ activeRunId: result.result.runId });
       }
     } catch (err) {
+      const errText = String(err || '');
+      if (isDeepSeekReasoningReplayError(errText)) {
+        try {
+          await useGatewayStore.getState().rpc('sessions.compact', { key: currentSessionKey }, 30_000);
+          const retryResult = await useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', {
+            sessionKey: currentSessionKey,
+            message: trimmed,
+            deliver: false,
+            idempotencyKey: `${Date.now()}-retry`,
+          }, 120_000);
+          if (retryResult?.runId) {
+            set({ activeRunId: retryResult.runId, error: null, sending: true });
+            return;
+          }
+        } catch {
+          // fall through to normal error path
+        }
+        try {
+          const { sessions } = get();
+          const prefix = getCanonicalPrefixFromSessionKey(currentSessionKey)
+            ?? getCanonicalPrefixFromSessions(sessions)
+            ?? DEFAULT_CANONICAL_PREFIX;
+          const recoveryKey = `${prefix}:session-${Date.now()}-recovery`;
+          const recoveryEntry: ChatSession = { key: recoveryKey, displayName: recoveryKey };
+          set((s) => ({
+            currentSessionKey: recoveryKey,
+            currentAgentId: getAgentIdFromSessionKey(recoveryKey),
+            sessions: [...s.sessions, recoveryEntry],
+            messages: [userMsg],
+            sending: true,
+            error: null,
+            streamingText: '',
+            streamingMessage: null,
+            streamingTools: [],
+            pendingFinal: false,
+            lastUserMessageAt: Date.now(),
+            pendingToolImages: [],
+          }));
+          const freshResult = await useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', {
+            sessionKey: recoveryKey,
+            message: trimmed,
+            deliver: false,
+            idempotencyKey: `${Date.now()}-recovery`,
+          }, 120_000);
+          if (freshResult?.runId) {
+            set({ activeRunId: freshResult.runId, error: null, sending: true });
+            return;
+          }
+        } catch {
+          // continue to standard error reporting
+        }
+      }
       clearHistoryPoll();
       _sendingSessionKey = null;
-      set({ error: String(err), sending: false });
+      set({
+        error: formatDeepSeekReasoningReplayError(errText),
+        sending: false,
+      });
     }
   },
 
