@@ -34,6 +34,10 @@ export interface RawMessage {
   /** Local-only: file metadata for user-uploaded attachments (not sent to/from Gateway) */
   _attachedFiles?: AttachedFileMeta[];
   reasoning_content?: unknown;
+  /** Gateway/OpenClaw: human-readable error when stopReason is error (e.g. stream failed before content) */
+  errorMessage?: string;
+  stopReason?: string;
+  stop_reason?: string;
 }
 
 /** Content block inside a message */

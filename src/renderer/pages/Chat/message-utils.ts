@@ -5,6 +5,9 @@
  */
 import type { RawMessage, ContentBlock } from '@/stores/chat';
 
+/** OpenClaw transcript placeholder when a stream dies before assistant text (see compaction-successor-transcript). */
+export const OPENCLAW_STREAM_ERROR_PLACEHOLDER = '[assistant turn failed before producing content]';
+
 /**
  * Clean Gateway metadata from user message text for display.
  * Strips: [media attached: ... | ...], [message_id: ...],
@@ -59,6 +62,26 @@ export function extractText(message: RawMessage | unknown): string {
   // Strip Gateway metadata from user messages for clean display
   if (isUser && result) {
     result = cleanUserText(result);
+  }
+
+  // Assistant: OpenClaw may record a generic placeholder plus top-level errorMessage
+  if (!isUser && msg.role === 'assistant') {
+    const errRaw = msg.errorMessage ?? msg.error_message;
+    const err = typeof errRaw === 'string' ? errRaw.trim() : '';
+    const trimmed = result.trim();
+    if (err) {
+      if (!trimmed || trimmed === OPENCLAW_STREAM_ERROR_PLACEHOLDER) {
+        return `本轮回复未生成正文。\n\n原因：${err}`;
+      }
+      if (trimmed.includes(OPENCLAW_STREAM_ERROR_PLACEHOLDER)) {
+        return trimmed.replace(
+          OPENCLAW_STREAM_ERROR_PLACEHOLDER,
+          `本轮回复未生成正文（原因见下）。\n\n${err}`,
+        );
+      }
+    } else if (trimmed === OPENCLAW_STREAM_ERROR_PLACEHOLDER) {
+      return `${OPENCLAW_STREAM_ERROR_PLACEHOLDER}\n\n未收到详细错误信息，请查看网关日志、升级 OpenClaw，或新建会话后重试。`;
+    }
   }
 
   return result;
