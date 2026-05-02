@@ -10,7 +10,32 @@ type FlatModel = {
   modelId: string;
   displayName: string;
   configured: boolean;
+  baseUrl?: string;
 };
+
+function sanitizeProviderConfigKey(raw: string): string {
+  const cleaned = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return cleaned;
+}
+
+function uniqueProviderKey(providers: Record<string, unknown>, seed: string): string {
+  const base = sanitizeProviderConfigKey(seed) || `custom-${crypto.randomUUID().slice(0, 8)}`;
+  let key = base;
+  let n = 0;
+  while (key in providers && n < 200) {
+    n += 1;
+    key = `${base}-${n}`;
+  }
+  if (key in providers) {
+    key = `${base}-${crypto.randomUUID().slice(0, 6)}`;
+  }
+  return key;
+}
 
 function flattenModels(modelsNode: Record<string, unknown> | null | undefined): FlatModel[] {
   const providers = ((modelsNode?.providers as Record<string, unknown>) || {}) as Record<string, unknown>;
@@ -18,9 +43,16 @@ function flattenModels(modelsNode: Record<string, unknown> | null | undefined): 
 
   for (const [providerId, providerRaw] of Object.entries(providers)) {
     const providerObj = (providerRaw as Record<string, unknown>) || {};
-    const authMode = String(providerObj.auth || '').trim().toLowerCase();
+    const authFlag = String(providerObj.auth || providerObj.authMode || '').trim().toLowerCase();
     const apiKey = String(providerObj.apiKey || '').trim();
-    const configured = authMode === 'oauth' || apiKey.length > 0;
+    const configured =
+      authFlag === 'oauth'
+      || authFlag === 'oauth_browser'
+      || authFlag === 'oauth_device'
+      || authFlag === 'local'
+      || apiKey.length > 0;
+    const baseUrlRaw = typeof providerObj.baseUrl === 'string' ? providerObj.baseUrl.trim() : '';
+    const baseUrl = baseUrlRaw || undefined;
     const models = Array.isArray(providerObj.models) ? providerObj.models : [];
     for (const item of models) {
       if (typeof item === 'string') {
@@ -32,6 +64,7 @@ function flattenModels(modelsNode: Record<string, unknown> | null | undefined): 
           modelId,
           displayName: modelId,
           configured,
+          baseUrl,
         });
         continue;
       }
@@ -45,6 +78,7 @@ function flattenModels(modelsNode: Record<string, unknown> | null | undefined): 
         modelId,
         displayName,
         configured,
+        baseUrl,
       });
     }
   }
@@ -52,12 +86,22 @@ function flattenModels(modelsNode: Record<string, unknown> | null | undefined): 
   return out;
 }
 
+type ApiProtocol = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
+
 export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, language }) => {
   const es = useMemo(() => (getTranslation(language) as any).es || {}, [language]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [addMode, setAddMode] = useState<'custom' | 'append'>('custom');
   const [newProviderId, setNewProviderId] = useState('openai');
   const [newModelId, setNewModelId] = useState('');
   const [newModelName, setNewModelName] = useState('');
+  const [customConfigKey, setCustomConfigKey] = useState('');
+  const [customLabel, setCustomLabel] = useState('');
+  const [customBaseUrl, setCustomBaseUrl] = useState('');
+  const [customModelId, setCustomModelId] = useState('');
+  const [customModelName, setCustomModelName] = useState('');
+  const [customApiKey, setCustomApiKey] = useState('');
+  const [customApiProtocol, setCustomApiProtocol] = useState<ApiProtocol>('openai-completions');
 
   const modelsNode = ((getField(['models']) as Record<string, unknown>) || {}) as Record<string, unknown>;
   const flatModels = useMemo(() => flattenModels(modelsNode), [modelsNode]);
@@ -111,6 +155,64 @@ export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, lang
     setShowAddForm(false);
   };
 
+  const addCustomEndpoint = () => {
+    const baseUrlInput = customBaseUrl.trim();
+    const modelId = customModelId.trim();
+    const apiKey = customApiKey.trim();
+    const label = customLabel.trim() || modelId;
+    const modelName = customModelName.trim();
+
+    if (!modelId || !apiKey) return;
+
+    const models = ((getField(['models']) as Record<string, unknown>) || {}) as Record<string, unknown>;
+    const providers = ((models.providers as Record<string, unknown>) || {}) as Record<string, unknown>;
+
+    const rawKey = customConfigKey.trim();
+    const sanitized = rawKey ? sanitizeProviderConfigKey(rawKey) : '';
+    const providerKey = (() => {
+      if (sanitized && sanitized in providers) return sanitized;
+      if (sanitized) return sanitized;
+      return uniqueProviderKey(providers, label);
+    })();
+
+    const prev = ((providers[providerKey] as Record<string, unknown>) || {}) as Record<string, unknown>;
+    const mergedBase = baseUrlInput || String(prev.baseUrl || '').trim();
+    if (!mergedBase) return;
+
+    const nextModels = Array.isArray(prev.models) ? [...prev.models] : [];
+    const exists = nextModels.some((item) => {
+      if (typeof item === 'string') return item.trim() === modelId;
+      return String((item as Record<string, unknown>)?.id || '').trim() === modelId;
+    });
+    if (exists) return;
+
+    nextModels.push({ id: modelId, name: modelName || modelId });
+
+    const nextProviderNode: Record<string, unknown> = {
+      ...prev,
+      vendorId: (String(prev.vendorId || '').trim() || 'custom'),
+      label: label || String(prev.label || providerKey),
+      baseUrl: mergedBase,
+      api: customApiProtocol,
+      apiKey,
+      auth: 'api_key',
+      authMode: 'api_key',
+      models: nextModels,
+    };
+
+    const nextProviders: Record<string, unknown> = { ...providers, [providerKey]: nextProviderNode };
+    setField(['models'], { ...models, providers: nextProviders });
+
+    setCustomConfigKey('');
+    setCustomLabel('');
+    setCustomBaseUrl('');
+    setCustomModelId('');
+    setCustomModelName('');
+    setCustomApiKey('');
+    setCustomApiProtocol('openai-completions');
+    setShowAddForm(false);
+  };
+
   const removeModel = (targetProviderId: string, targetModelId: string) => {
     const models = ((getField(['models']) as Record<string, unknown>) || {}) as Record<string, unknown>;
     const providers = ((models.providers as Record<string, unknown>) || {}) as Record<string, unknown>;
@@ -120,6 +222,11 @@ export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, lang
       if (typeof item === 'string') return item.trim() !== targetModelId;
       return String((item as Record<string, unknown>)?.id || '').trim() !== targetModelId;
     });
+    if (nextModels.length === 0) {
+      const { [targetProviderId]: _removed, ...rest } = providers;
+      setField(['models'], { ...models, providers: rest });
+      return;
+    }
     const nextProviderNode: Record<string, unknown> = { ...providerNode, models: nextModels };
     const nextProviders: Record<string, unknown> = { ...providers, [targetProviderId]: nextProviderNode };
     setField(['models'], { ...models, providers: nextProviders });
@@ -133,12 +240,43 @@ export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, lang
     setField(['agents', 'defaults', 'model', 'fallbacks'], next);
   };
 
+  const providersNode = ((modelsNode.providers as Record<string, unknown>) || {}) as Record<string, unknown>;
+  const customKeySanitized = customConfigKey.trim() ? sanitizeProviderConfigKey(customConfigKey) : '';
+  const customMergeHasBase =
+    Boolean(customKeySanitized)
+    && customKeySanitized in providersNode
+    && Boolean(String((providersNode[customKeySanitized] as Record<string, unknown>)?.baseUrl || '').trim());
+  const canSubmitCustom =
+    Boolean(customModelId.trim())
+    && Boolean(customApiKey.trim())
+    && (Boolean(customBaseUrl.trim()) || customMergeHasBase);
+
+  const resetAddForm = () => {
+    setAddMode('custom');
+    setNewProviderId('openai');
+    setNewModelId('');
+    setNewModelName('');
+    setCustomConfigKey('');
+    setCustomLabel('');
+    setCustomBaseUrl('');
+    setCustomModelId('');
+    setCustomModelName('');
+    setCustomApiKey('');
+    setCustomApiProtocol('openai-completions');
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end">
         <button
           type="button"
-          onClick={() => setShowAddForm((v) => !v)}
+          onClick={() => {
+            setShowAddForm((v) => {
+              const next = !v;
+              if (!next) resetAddForm();
+              return next;
+            });
+          }}
           className="h-8 px-3 rounded-md text-[12px] border border-slate-200 dark:border-white/15 text-slate-600 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5"
         >
           {showAddForm
@@ -148,35 +286,130 @@ export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, lang
       </div>
 
       {showAddForm && (
-        <div className="rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black/20 p-3">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <input
-              value={newProviderId}
-              onChange={(e) => setNewProviderId(e.target.value)}
-              placeholder={i18n.t('models.fieldProvider', { defaultValue: '供应商 ID（如 openai）' })}
-              className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
-            />
-            <input
-              value={newModelId}
-              onChange={(e) => setNewModelId(e.target.value)}
-              placeholder={i18n.t('models.fieldModelId', { defaultValue: '模型 ID（如 gpt-5.3-codex）' })}
-              className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
-            />
-            <input
-              value={newModelName}
-              onChange={(e) => setNewModelName(e.target.value)}
-              placeholder={i18n.t('models.fieldModelName', { defaultValue: '模型名称（可选）' })}
-              className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
-            />
+        <div className="rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black/20 p-3 space-y-3">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={addModel}
-              disabled={!newProviderId.trim() || !newModelId.trim()}
-              className="h-9 px-3 rounded-md text-[12px] border border-primary/40 bg-primary/10 text-primary disabled:opacity-50"
+              onClick={() => setAddMode('custom')}
+              className={`h-8 px-3 rounded-md text-[12px] border ${
+                addMode === 'custom'
+                  ? 'border-primary/50 bg-primary/10 text-primary'
+                  : 'border-slate-200 dark:border-white/15 text-slate-600 dark:text-slate-200'
+              }`}
             >
-              {i18n.t('models.btnConfirmAdd', { defaultValue: '确认添加' })}
+              {i18n.t('models.addModeCustom', { defaultValue: '自定义 API 端点' })}
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddMode('append')}
+              className={`h-8 px-3 rounded-md text-[12px] border ${
+                addMode === 'append'
+                  ? 'border-primary/50 bg-primary/10 text-primary'
+                  : 'border-slate-200 dark:border-white/15 text-slate-600 dark:text-slate-200'
+              }`}
+            >
+              {i18n.t('models.addModeAppend', { defaultValue: '仅追加到已有供应商' })}
             </button>
           </div>
+
+          {addMode === 'custom' ? (
+            <>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                {i18n.t('models.customHelp', {
+                  defaultValue:
+                    '填写兼容 OpenAI / Anthropic 的网关地址、模型 ID 与 API Key。配置键留空将自动生成；与已有键同名则合并模型并更新密钥。',
+                })}
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <input
+                  value={customConfigKey}
+                  onChange={(e) => setCustomConfigKey(e.target.value)}
+                  placeholder={i18n.t('models.fieldConfigKey', { defaultValue: '配置键（可选，如 my-proxy）' })}
+                  className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+                />
+                <input
+                  value={customLabel}
+                  onChange={(e) => setCustomLabel(e.target.value)}
+                  placeholder={i18n.t('models.fieldProviderLabel', { defaultValue: '供应商显示名称' })}
+                  className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+                />
+                <input
+                  value={customBaseUrl}
+                  onChange={(e) => setCustomBaseUrl(e.target.value)}
+                  placeholder={i18n.t('models.fieldBaseUrl', { defaultValue: 'API 地址（如 https://api.openai.com/v1）' })}
+                  className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm md:col-span-2"
+                />
+                <select
+                  value={customApiProtocol}
+                  onChange={(e) => setCustomApiProtocol(e.target.value as ApiProtocol)}
+                  className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+                >
+                  <option value="openai-completions">OpenAI Chat Completions</option>
+                  <option value="openai-responses">OpenAI Responses</option>
+                  <option value="anthropic-messages">Anthropic Messages</option>
+                </select>
+                <input
+                  value={customModelId}
+                  onChange={(e) => setCustomModelId(e.target.value)}
+                  placeholder={i18n.t('models.fieldModelId', { defaultValue: '模型 ID（如 gpt-5.3-codex）' })}
+                  className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+                />
+                <input
+                  value={customModelName}
+                  onChange={(e) => setCustomModelName(e.target.value)}
+                  placeholder={i18n.t('models.fieldModelName', { defaultValue: '模型显示名称（可选）' })}
+                  className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+                />
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={customApiKey}
+                  onChange={(e) => setCustomApiKey(e.target.value)}
+                  placeholder={i18n.t('models.fieldApiKey', { defaultValue: 'API Key' })}
+                  className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm md:col-span-2"
+                />
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={addCustomEndpoint}
+                  disabled={!canSubmitCustom}
+                  className="h-9 px-4 rounded-md text-[12px] border border-primary/40 bg-primary/10 text-primary disabled:opacity-50"
+                >
+                  {i18n.t('models.btnConfirmAddCustom', { defaultValue: '保存自定义端点' })}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              <input
+                value={newProviderId}
+                onChange={(e) => setNewProviderId(e.target.value)}
+                placeholder={i18n.t('models.fieldProvider', { defaultValue: '供应商 ID（如 openai）' })}
+                className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+              />
+              <input
+                value={newModelId}
+                onChange={(e) => setNewModelId(e.target.value)}
+                placeholder={i18n.t('models.fieldModelId', { defaultValue: '模型 ID（如 gpt-5.3-codex）' })}
+                className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+              />
+              <input
+                value={newModelName}
+                onChange={(e) => setNewModelName(e.target.value)}
+                placeholder={i18n.t('models.fieldModelName', { defaultValue: '模型名称（可选）' })}
+                className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+              />
+              <button
+                type="button"
+                onClick={addModel}
+                disabled={!newProviderId.trim() || !newModelId.trim()}
+                className="h-9 px-3 rounded-md text-[12px] border border-primary/40 bg-primary/10 text-primary disabled:opacity-50"
+              >
+                {i18n.t('models.btnConfirmAdd', { defaultValue: '确认添加' })}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -258,6 +491,11 @@ export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, lang
                       )}
                     </div>
                     <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">{item.path}</div>
+                    {item.baseUrl ? (
+                      <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 truncate" title={item.baseUrl}>
+                        {item.baseUrl}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="shrink-0 flex items-center gap-2">
                     <button
