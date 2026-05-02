@@ -7,9 +7,10 @@
 
 export function isDeepSeekReasoningReplayError(message: string): boolean {
   const t = String(message || '');
+  if (!/reasoning_content/i.test(t)) return false;
+  // Provider text varies ("400 ...", Chinese proxies, etc.) — match semantic cues only.
   return (
-    /reasoning_content/i.test(t)
-    && (/must be passed back/i.test(t) || /thinking mode/i.test(t) || /\b400\b/.test(t))
+    /must be passed back|thinking mode|passed back to the api|thinking mode must/i.test(t)
   );
 }
 
@@ -23,8 +24,10 @@ export function formatDeepSeekReasoningReplayError(raw: string): string {
     '建议依次尝试：',
     '1）升级并重启网关：npm i -g @openclaw/core，或 brew upgrade openclaw，然后重启 OpenClaw Gateway（新版会在 DeepSeek 插件里重放 reasoning_content）。',
     '2）新建会话后再发送同一问题（避免沿用过旧历史）。',
-    '3）在会话或工具栏将「思考」设为关闭（None），走非 thinking 路径；网关会对 DeepSeek 发送 thinking: disabled。',
+    '3）在会话或工具栏将「思考」设为关闭（off），走非 thinking 路径；网关会对 DeepSeek 发送 thinking: disabled。（本应用也会在检测到该错误时自动尝试将会话 thinking 设为 off 并重试。）',
     '4）或临时改用 deepseek/deepseek-chat（非 V4 thinking 面）。',
+    '',
+    '若界面同时出现「503」：多为网关或上游瞬时断连，可重启 OpenClaw Gateway 后再发。',
     '',
     '文档： https://api-docs.deepseek.com/guides/thinking_mode',
     'OpenClaw： https://docs.openclaw.ai/providers/deepseek',

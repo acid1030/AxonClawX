@@ -777,6 +777,26 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
       const errText = String(err?.message || err || '');
       if (isDeepSeekReasoningReplayError(errText)) {
         try {
+          await gwApi.proxy('sessions.patch', { key: sessionKey, thinkingLevel: 'off' });
+          const retryThink = await gwApi.proxy('chat.send', {
+            sessionKey,
+            message: msg,
+            idempotencyKey: `${idempotencyKey}-retry-thinkoff`,
+          }) as any;
+          const retryThinkRunId = retryThink?.runId || `${idempotencyKey}-retry-thinkoff`;
+          setRunId(retryThinkRunId);
+          setRunPhase('streaming');
+          setError(null);
+          pendingRunRef.current = {
+            runId: retryThinkRunId,
+            beforeCount: messages.length + 1,
+            startedAt: Date.now(),
+          };
+          return;
+        } catch {
+          // fall through
+        }
+        try {
           await gwApi.proxy('sessions.compact', { key: sessionKey });
           const retry = await gwApi.proxy('chat.send', {
             sessionKey,

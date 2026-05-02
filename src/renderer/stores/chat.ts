@@ -1926,6 +1926,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const errText = String(err || '');
       if (isDeepSeekReasoningReplayError(errText)) {
         try {
+          await useGatewayStore.getState().rpc(
+            'sessions.patch',
+            { key: currentSessionKey, thinkingLevel: 'off' },
+            15_000,
+          );
+          set({ thinkingLevel: 'off' });
+          const retryThinkOff = await useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', {
+            sessionKey: currentSessionKey,
+            message: trimmed,
+            deliver: false,
+            idempotencyKey: `${idempotencyKey}-retry-thinkoff`,
+          }, 120_000);
+          if (retryThinkOff?.runId) {
+            set({ activeRunId: retryThinkOff.runId, error: null, sending: true });
+            return;
+          }
+        } catch {
+          // fall through
+        }
+        try {
           await useGatewayStore.getState().rpc('sessions.compact', { key: currentSessionKey }, 30_000);
           const retryResult = await useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', {
             sessionKey: currentSessionKey,
@@ -2259,6 +2279,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const errorMsg = String(event.errorMessage || 'An error occurred');
         const wasSending = get().sending;
 
+        if (isDeepSeekReasoningReplayError(errorMsg)) {
+          const sk = get().currentSessionKey;
+          void useGatewayStore.getState().rpc(
+            'sessions.patch',
+            { key: sk, thinkingLevel: 'off' },
+            15_000,
+          ).then(() => {
+            set({ thinkingLevel: 'off' });
+          }).catch(() => { /* ignore */ });
+        }
+
         // Snapshot the current streaming message into messages[] so partial
         // content ("Let me get that written down...") is preserved in the UI
         // rather than being silently discarded.
@@ -2275,7 +2306,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
 
         set({
-          error: errorMsg,
+          error: isDeepSeekReasoningReplayError(errorMsg) ? formatDeepSeekReasoningReplayError(errorMsg) : errorMsg,
           streamingText: '',
           streamingMessage: null,
           streamingTools: [],
