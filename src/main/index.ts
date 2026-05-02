@@ -2300,6 +2300,14 @@ ipcMain.handle('setup:save-remote-gateway', async (_event, payload: {
 });
 
 ipcMain.handle('setup:connect-local-gateway', async () => {
+  const installResult = await installOpenClawIfMissing();
+  if (!installResult.ok) {
+    return {
+      success: false,
+      error: installResult.error || 'OpenClaw not installed and auto-install failed.',
+      logs: installResult.logs,
+    };
+  }
   // Do not block connection on DB native-module loading issues.
   try {
     if (isInitialized()) {
@@ -2397,6 +2405,8 @@ ipcMain.handle('setup:connect-local-gateway', async () => {
     success: !!probe.success,
     port: probe.port,
     error: probe.error,
+    logs: installResult.logs,
+    installedNow: installResult.installedNow,
   };
 });
 
@@ -2423,7 +2433,12 @@ ipcMain.handle('setup:repair-local-gateway-scopes', async () => {
   }
 });
 
-ipcMain.handle('setup:install-local-openclaw', async () => {
+async function installOpenClawIfMissing(): Promise<{
+  ok: boolean;
+  installedNow: boolean;
+  logs: string[];
+  error?: string;
+}> {
   const logs: string[] = [];
   const run = async (cmd: string, timeout = 120000): Promise<{ ok: boolean; output: string }> => {
     try {
@@ -2438,15 +2453,51 @@ ipcMain.handle('setup:install-local-openclaw', async () => {
     }
   };
 
-  const hasOpenClaw = await run('openclaw --version', 10000);
-  if (!hasOpenClaw.ok) {
-    const install = await run('npm install -g @openclaw/core', 20 * 60 * 1000);
-    if (!install.ok) {
-      return { success: false, error: 'Failed to install OpenClaw via npm.', logs };
+  const exists = await run('openclaw --version', 10000);
+  if (exists.ok) return { ok: true, installedNow: false, logs };
+
+  logs.push('[installer] OpenClaw not found, trying smart install strategy...');
+  const hasBrew = await run('command -v brew', 5000);
+  if (hasBrew.ok) {
+    const brewInstall = await run('brew install openclaw', 25 * 60 * 1000);
+    if (brewInstall.ok) {
+      const verify = await run('openclaw --version', 10000);
+      if (verify.ok) return { ok: true, installedNow: true, logs };
     }
   }
 
-  await run('openclaw gateway start', 120000);
+  const npmInstall = await run('npm install -g @openclaw/core', 25 * 60 * 1000);
+  if (!npmInstall.ok) {
+    return {
+      ok: false,
+      installedNow: false,
+      logs,
+      error: 'Failed to install OpenClaw (brew/npm both unavailable or failed).',
+    };
+  }
+  const verify = await run('openclaw --version', 10000);
+  if (!verify.ok) {
+    return {
+      ok: false,
+      installedNow: false,
+      logs,
+      error: 'OpenClaw install finished but CLI is still unavailable in PATH.',
+    };
+  }
+  return { ok: true, installedNow: true, logs };
+}
+
+ipcMain.handle('setup:install-local-openclaw', async () => {
+  const installResult = await installOpenClawIfMissing();
+  const logs = [...installResult.logs];
+  if (!installResult.ok) {
+    return { success: false, error: installResult.error || 'Failed to install OpenClaw.', logs };
+  }
+  try {
+    await startGateway();
+  } catch (err) {
+    logs.push(`[gateway:start] ${String(err)}`);
+  }
   const probe = await resolveGatewayPort();
   if (!probe.success) {
     return { success: false, error: probe.error || 'Gateway failed to start', logs };
@@ -2465,7 +2516,7 @@ ipcMain.handle('setup:install-local-openclaw', async () => {
     host: '127.0.0.1',
     port: probe.port ?? getResolvedGatewayPort(),
   });
-  return { success: true, port: probe.port, logs };
+  return { success: true, port: probe.port, logs, installedNow: installResult.installedNow };
 });
 
 // Legacy setup channels compatibility

@@ -443,6 +443,7 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [localStarting, setLocalStarting] = useState(false);
+  const [installingOpenClaw, setInstallingOpenClaw] = useState(false);
   const [remoteTesting, setRemoteTesting] = useState(false);
   const [remoteProtocol, setRemoteProtocol] = useState<'ws' | 'wss'>('ws');
   const [remoteHost, setRemoteHost] = useState('');
@@ -591,11 +592,23 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
     setError('');
     appendScanLog(t('runtime.local.connecting', { defaultValue: '正在连接本地 Gateway...' }));
     try {
-      const res = await invokeIpc<{ success: boolean; error?: string; port?: number }>('setup:connect-local-gateway');
+      const res = await invokeIpc<{
+        success: boolean;
+        error?: string;
+        port?: number;
+        logs?: string[];
+        installedNow?: boolean;
+      }>('setup:connect-local-gateway');
+      if (Array.isArray(res?.logs)) {
+        for (const line of res.logs.slice(-20)) appendScanLog(line);
+      }
       if (!res?.success) {
         appendScanLog(t('runtime.local.connectFailed', { defaultValue: '本地 Gateway 连接失败' }));
         setError(res?.error || t('runtime.local.connectFailed', { defaultValue: '本地 Gateway 连接失败' }));
         return;
+      }
+      if (res.installedNow) {
+        appendScanLog(t('runtime.local.installedNow', { defaultValue: 'OpenClaw 已自动安装完成。' }));
       }
       setLocalConnected(true);
       appendScanLog(t('runtime.local.connected', { port: res.port ?? 'unknown', defaultValue: '本地 Gateway 已连接（端口 {{port}}）' }));
@@ -606,6 +619,31 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
       setError(String(err));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleInstallOpenClaw = async () => {
+    setInstallingOpenClaw(true);
+    setError('');
+    appendScanLog(t('runtime.local.installingOpenclaw', { defaultValue: '未检测到 OpenClaw，正在执行智能安装...' }));
+    try {
+      const res = await invokeIpc<{ success: boolean; error?: string; logs?: string[]; port?: number }>('setup:install-local-openclaw');
+      if (Array.isArray(res?.logs)) {
+        for (const line of res.logs.slice(-30)) appendScanLog(line);
+      }
+      if (!res?.success) {
+        setError(res?.error || t('runtime.local.installFailed', { defaultValue: 'OpenClaw 安装失败' }));
+        appendScanLog(t('runtime.local.installFailed', { defaultValue: 'OpenClaw 安装失败' }));
+        return;
+      }
+      appendScanLog(t('runtime.local.installSuccess', { defaultValue: 'OpenClaw 安装成功，Gateway 已就绪。' }));
+      toast.success(t('runtime.local.installSuccess', { defaultValue: 'OpenClaw 安装成功，Gateway 已就绪。' }));
+      await refreshScan();
+    } catch (err) {
+      setError(String(err));
+      appendScanLog(`${t('runtime.local.installFailed', { defaultValue: 'OpenClaw 安装失败' })} ${String(err)}`);
+    } finally {
+      setInstallingOpenClaw(false);
     }
   };
 
@@ -788,11 +826,21 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
             <li>{t('runtime.local.step3', { defaultValue: '连接成功后可进入下一步' })}</li>
           </ol>
           <div className="flex flex-wrap gap-2">
+            {!scanData?.local.openClawInstalled && (
+              <Button
+                variant="secondary"
+                onClick={handleInstallOpenClaw}
+                disabled={installingOpenClaw || actionLoading || localStarting}
+              >
+                {installingOpenClaw ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                {t('runtime.local.installOpenclawBtn', { defaultValue: '智能安装 OpenClaw' })}
+              </Button>
+            )}
             <Button variant="outline" onClick={handleStartLocalGateway} disabled={localStarting || actionLoading}>
               {localStarting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               {t('runtime.local.startBtn', { defaultValue: '启动本地 Gateway' })}
             </Button>
-            <Button onClick={handleConnectLocal} disabled={actionLoading || localStarting}>
+            <Button onClick={handleConnectLocal} disabled={actionLoading || localStarting || installingOpenClaw}>
               {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               {t('runtime.local.connectBtn', { defaultValue: '连接本地 Gateway' })}
             </Button>

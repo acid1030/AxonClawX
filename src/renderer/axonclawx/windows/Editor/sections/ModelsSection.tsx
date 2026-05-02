@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { SectionProps } from '../sectionTypes';
 import { ConfigSection, SelectField, EmptyState } from '../fields';
 import { getTranslation } from '../../../locales';
@@ -54,6 +54,10 @@ function flattenModels(modelsNode: Record<string, unknown> | null | undefined): 
 
 export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, language }) => {
   const es = useMemo(() => (getTranslation(language) as any).es || {}, [language]);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newProviderId, setNewProviderId] = useState('openai');
+  const [newModelId, setNewModelId] = useState('');
+  const [newModelName, setNewModelName] = useState('');
 
   const modelsNode = ((getField(['models']) as Record<string, unknown>) || {}) as Record<string, unknown>;
   const flatModels = useMemo(() => flattenModels(modelsNode), [modelsNode]);
@@ -80,6 +84,47 @@ export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, lang
     setField(['agents', 'defaults', 'model', 'primary'], path);
   };
 
+  const addModel = () => {
+    const providerId = newProviderId.trim();
+    const modelId = newModelId.trim();
+    const modelName = newModelName.trim();
+    if (!providerId || !modelId) return;
+
+    const models = ((getField(['models']) as Record<string, unknown>) || {}) as Record<string, unknown>;
+    const providers = ((models.providers as Record<string, unknown>) || {}) as Record<string, unknown>;
+    const providerNode = (((providers[providerId] as Record<string, unknown>) || {}) as Record<string, unknown>);
+    const nextModels = Array.isArray(providerNode.models) ? [...providerNode.models] : [];
+
+    const exists = nextModels.some((item) => {
+      if (typeof item === 'string') return item.trim() === modelId;
+      return String((item as Record<string, unknown>)?.id || '').trim() === modelId;
+    });
+    if (exists) return;
+
+    nextModels.push(modelName ? { id: modelId, name: modelName } : modelId);
+    const nextProviderNode: Record<string, unknown> = { ...providerNode, models: nextModels };
+    const nextProviders: Record<string, unknown> = { ...providers, [providerId]: nextProviderNode };
+    setField(['models'], { ...models, providers: nextProviders });
+
+    setNewModelId('');
+    setNewModelName('');
+    setShowAddForm(false);
+  };
+
+  const removeModel = (targetProviderId: string, targetModelId: string) => {
+    const models = ((getField(['models']) as Record<string, unknown>) || {}) as Record<string, unknown>;
+    const providers = ((models.providers as Record<string, unknown>) || {}) as Record<string, unknown>;
+    const providerNode = (((providers[targetProviderId] as Record<string, unknown>) || {}) as Record<string, unknown>);
+    const currentModels = Array.isArray(providerNode.models) ? providerNode.models : [];
+    const nextModels = currentModels.filter((item) => {
+      if (typeof item === 'string') return item.trim() !== targetModelId;
+      return String((item as Record<string, unknown>)?.id || '').trim() !== targetModelId;
+    });
+    const nextProviderNode: Record<string, unknown> = { ...providerNode, models: nextModels };
+    const nextProviders: Record<string, unknown> = { ...providers, [targetProviderId]: nextProviderNode };
+    setField(['models'], { ...models, providers: nextProviders });
+  };
+
   const toggleFallback = (path: string) => {
     const next = [...fallbacks];
     const index = next.indexOf(path);
@@ -90,6 +135,51 @@ export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, lang
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => setShowAddForm((v) => !v)}
+          className="h-8 px-3 rounded-md text-[12px] border border-slate-200 dark:border-white/15 text-slate-600 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5"
+        >
+          {showAddForm
+            ? i18n.t('models.btnCancelAdd', { defaultValue: '取消添加' })
+            : i18n.t('models.btnAddModel', { defaultValue: '添加模型' })}
+        </button>
+      </div>
+
+      {showAddForm && (
+        <div className="rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black/20 p-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <input
+              value={newProviderId}
+              onChange={(e) => setNewProviderId(e.target.value)}
+              placeholder={i18n.t('models.fieldProvider', { defaultValue: '供应商 ID（如 openai）' })}
+              className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+            />
+            <input
+              value={newModelId}
+              onChange={(e) => setNewModelId(e.target.value)}
+              placeholder={i18n.t('models.fieldModelId', { defaultValue: '模型 ID（如 gpt-5.3-codex）' })}
+              className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+            />
+            <input
+              value={newModelName}
+              onChange={(e) => setNewModelName(e.target.value)}
+              placeholder={i18n.t('models.fieldModelName', { defaultValue: '模型名称（可选）' })}
+              className="h-9 px-3 rounded-md border border-slate-200 dark:border-white/15 bg-transparent text-sm"
+            />
+            <button
+              type="button"
+              onClick={addModel}
+              disabled={!newProviderId.trim() || !newModelId.trim()}
+              className="h-9 px-3 rounded-md text-[12px] border border-primary/40 bg-primary/10 text-primary disabled:opacity-50"
+            >
+              {i18n.t('models.btnConfirmAdd', { defaultValue: '确认添加' })}
+            </button>
+          </div>
+        </div>
+      )}
+
       <ConfigSection
         title={String(es.secModels || i18n.t('configCenter.models.title', { defaultValue: '模型配置' }))}
         icon="psychology"
@@ -194,6 +284,13 @@ export const ModelsSection: React.FC<SectionProps> = ({ setField, getField, lang
                       {isPrimary
                         ? i18n.t('models.btnCurrentDefault', { defaultValue: '当前默认' })
                         : String(es.setPrimary || i18n.t('models.btnSetDefault', { defaultValue: '设为默认' }))}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeModel(item.providerId, item.modelId)}
+                      className="h-7 px-2.5 rounded-md text-[11px] border border-rose-500/30 text-rose-500 hover:bg-rose-500/10"
+                    >
+                      {i18n.t('models.btnDelete', { defaultValue: '删除' })}
                     </button>
                   </div>
                 </div>
