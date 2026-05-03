@@ -1939,6 +1939,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             idempotencyKey: `${idempotencyKey}-retry-thinkoff`,
           }, 120_000);
           if (retryThinkOff?.runId) {
+            _sendingSessionKey = currentSessionKey;
             set({ activeRunId: retryThinkOff.runId, error: null, sending: true });
             return;
           }
@@ -1954,6 +1955,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             idempotencyKey: `${Date.now()}-retry`,
           }, 120_000);
           if (retryResult?.runId) {
+            _sendingSessionKey = currentSessionKey;
             set({ activeRunId: retryResult.runId, error: null, sending: true });
             return;
           }
@@ -1988,6 +1990,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             idempotencyKey: `${Date.now()}-recovery`,
           }, 120_000);
           if (freshResult?.runId) {
+            _sendingSessionKey = recoveryKey;
             set({ activeRunId: freshResult.runId, error: null, sending: true });
             return;
           }
@@ -2040,9 +2043,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Ambiguous event (no session key): discard if it came from a session the
     // user has already navigated away from.
     if (eventSessionKey == null && _sendingSessionKey != null && _sendingSessionKey !== currentSessionKey) return;
-    // Ambiguous event (no session key, no active run, and we are idle) — ignore
-    // to avoid stale cross-session content being appended unexpectedly.
-    if (eventSessionKey == null && !activeRunId && !sending) return;
+    // Ambiguous event (no session key): only accept when it carries runId and
+    // runId matches the active run. This prevents cross-session message bleed.
+    if (eventSessionKey == null) {
+      if (!runId) return;
+      if (!activeRunId || runId !== activeRunId) return;
+    }
 
     // Only process events for the active run (or if no active run set)
     if (activeRunId && runId && runId !== activeRunId) return;

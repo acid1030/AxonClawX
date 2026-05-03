@@ -387,7 +387,13 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
     if (!payload) return;
     // Only handle events for the current session
     const eventSessionKey = payload.sessionKey || payload.key;
+    const eventRunId = String(payload.runId || '');
     if (eventSessionKey && eventSessionKey !== sessionKeyRef.current) return;
+    // Ambiguous event without session key must match active run to avoid cross-session mixing
+    if (!eventSessionKey) {
+      if (!eventRunId) return;
+      if (!runId || eventRunId !== runId) return;
+    }
 
     // session.message style payload (without state)
     if (!payload.state && (payload.role || payload.message?.role)) {
@@ -459,7 +465,7 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
       pendingRunRef.current = null;
       setError(payload.errorMessage || c.error);
     }
-  }, [c.error]);
+  }, [c.error, runId]);
 
   // Keep ref updated with latest handler
   useEffect(() => {

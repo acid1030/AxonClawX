@@ -8477,6 +8477,104 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
       }
     }
 
+    // 特殊处理：/api/v1/host-info/check-update
+    // 概览页更新提示依赖此接口：返回 { updateAvailable, currentVersion, latestVersion }
+    if (path === '/api/v1/host-info/check-update') {
+      const parseVersionParts = (v: string): number[] =>
+        String(v || '')
+          .trim()
+          .replace(/^v/i, '')
+          .split('.')
+          .map((x) => Number.parseInt(x, 10))
+          .filter((n) => Number.isFinite(n));
+      const compareVersions = (aRaw: string, bRaw: string): number => {
+        const a = parseVersionParts(aRaw);
+        const b = parseVersionParts(bRaw);
+        const maxLen = Math.max(a.length, b.length, 1);
+        for (let i = 0; i < maxLen; i += 1) {
+          const av = a[i] ?? 0;
+          const bv = b[i] ?? 0;
+          if (av > bv) return 1;
+          if (av < bv) return -1;
+        }
+        return 0;
+      };
+      try {
+        let currentVersion = '';
+        try {
+          const { stdout } = await execAsync('openclaw --version', { timeout: 5000 });
+          currentVersion = String(stdout || '').trim().replace(/^v/i, '');
+        } catch {
+          // fallback: global npm package metadata
+          try {
+            const pkgPath = '/opt/homebrew/lib/node_modules/openclaw/package.json';
+            if (fs.existsSync(pkgPath)) {
+              const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { version?: string };
+              currentVersion = String(pkg.version || '').trim().replace(/^v/i, '');
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        let latestVersion = '';
+        // 优先查询 npm registry（openclaw）
+        try {
+          const resp = await fetch('https://registry.npmjs.org/openclaw/latest');
+          if (resp.ok) {
+            const json = (await resp.json()) as { version?: string };
+            latestVersion = String(json.version || '').trim().replace(/^v/i, '');
+          }
+        } catch {
+          // ignore and fallback
+        }
+        // 兜底查询 @openclaw/core（兼容不同发布名）
+        if (!latestVersion) {
+          try {
+            const resp = await fetch('https://registry.npmjs.org/@openclaw/core/latest');
+            if (resp.ok) {
+              const json = (await resp.json()) as { version?: string };
+              latestVersion = String(json.version || '').trim().replace(/^v/i, '');
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        const updateAvailable =
+          !!currentVersion
+          && !!latestVersion
+          && compareVersions(latestVersion, currentVersion) > 0;
+
+        const payload = {
+          updateAvailable,
+          currentVersion: currentVersion || undefined,
+          latestVersion: latestVersion || undefined,
+        };
+        return {
+          ok: true,
+          data: { status: 200, json: payload, ok: true },
+          success: true,
+          status: 200,
+          json: payload,
+        };
+      } catch (err) {
+        const payload = {
+          updateAvailable: false,
+          currentVersion: undefined,
+          latestVersion: undefined,
+          error: String(err),
+        };
+        return {
+          ok: true,
+          data: { status: 200, json: payload, ok: true },
+          success: true,
+          status: 200,
+          json: payload,
+        };
+      }
+    }
+
     // 特殊处理：/health 直接返回成功
     if (path === '/health') {
       console.log('[HostAPI] GET /health (direct response)');
