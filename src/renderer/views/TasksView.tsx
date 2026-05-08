@@ -372,6 +372,10 @@ export function TasksView() {
   const runs = useTaskMonitorStore((s) => s.runs);
   const removeRun = useTaskMonitorStore((s) => s.removeRun);
   const ensureHydrated = useTaskMonitorStore((s) => s.ensureHydrated);
+  const loadMore = useTaskMonitorStore((s) => s.loadMore);
+  const loadingMore = useTaskMonitorStore((s) => s.loadingMore);
+  const hasMore = useTaskMonitorStore((s) => s.hasMore);
+  const hydrating = useTaskMonitorStore((s) => s.hydrating);
   const [activeTab, setActiveTab] = useState<TabKey>('all');
 
   useEffect(() => {
@@ -497,7 +501,21 @@ export function TasksView() {
               {filteredRuns.map((run) => (
                 <TaskCard key={run.localId} run={run} onDelete={removeRun} />
               ))}
+              {hasMore && activeTab === 'all' && (
+                <div className="flex justify-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => void loadMore()}
+                    disabled={loadingMore}
+                    className="px-4 py-2 rounded-lg text-xs text-white/70 bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {loadingMore ? t('loadingMore') : t('loadMore')}
+                  </button>
+                </div>
+              )}
             </div>
+          ) : hydrating ? (
+            <EmptyState message={t('loading')} />
           ) : (
             <EmptyState message={t('empty')} />
           )}

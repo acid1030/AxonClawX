@@ -1,0 +1,6 @@
+server/data/
+server/node_modules/
+web/node_modules/
+web/dist/
+web/ios/
+*.log

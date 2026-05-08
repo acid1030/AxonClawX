@@ -9,6 +9,7 @@ import { useGatewayStore } from './gateway';
 import { useAgentsStore } from './agents';
 import { buildCronSessionHistoryPath, isCronSessionKey } from './chat/cron-session-utils';
 import { formatDeepSeekReasoningReplayError, isDeepSeekReasoningReplayError } from '@/lib/deepseek-reasoning-error';
+import { shouldForceDeepSeekV4ThinkingOff } from '@/lib/deepseek-v4-thinking';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -63,7 +64,13 @@ export interface ChatSession {
   displayName?: string;
   thinkingLevel?: string;
   model?: string;
+  modelProvider?: string;
   updatedAt?: number;
+  kind?: string;
+  spawnedBy?: string;
+  parentSessionKey?: string;
+  parentRunId?: string;
+  parentId?: string;
 }
 
 export interface ToolStatus {
@@ -99,6 +106,8 @@ interface ChatState {
   currentAgentId: string;
   /** First user message text per session key, used as display label */
   sessionLabels: Record<string, string>;
+  /** User-starred sessions shown in chat and dashboard */
+  favoriteSessionKeys: Record<string, boolean>;
   /** Last message timestamp (ms) per session key, used for sorting */
   sessionLastActivity: Record<string, number>;
 
@@ -113,6 +122,7 @@ interface ChatState {
   deleteSession: (key: string) => Promise<void>;
   cleanupEmptySession: () => void;
   setSessionLabel: (sessionKey: string, label: string) => void;
+  toggleSessionFavorite: (sessionKey: string) => void;
   loadHistory: (quiet?: boolean) => Promise<void>;
   /** 加载历史，支持指定日期前或更大 limit */
   loadHistoryWithOptions: (options?: { beforeTs?: number; limit?: number }) => Promise<void>;
@@ -134,9 +144,75 @@ interface ChatState {
 // between tool-result finals and the next delta.
 let _lastChatEventAt = 0;
 // Session key that was active when the most recent sendMessage was initiated.
-// Used by handleChatEvent to discard events that belong to a session the user
-// has already navigated away from (handles events that lack a sessionKey field).
+// Kept only as a fallback for legacy Gateway events that do not carry sessionKey.
 let _sendingSessionKey: string | null = null;
+
+const SESSION_FAVORITES_STORAGE_KEY = 'axon.chat.sessionFavorites.v1';
+
+function loadSessionFavorites(): Record<string, boolean> {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return {};
+    const raw = window.localStorage.getItem(SESSION_FAVORITES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([key, value]) => key && value === true),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function saveSessionFavorites(favorites: Record<string, boolean>): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.setItem(
+      SESSION_FAVORITES_STORAGE_KEY,
+      JSON.stringify(Object.fromEntries(Object.entries(favorites).filter(([, value]) => value === true))),
+    );
+  } catch {
+    // ignore storage failures
+  }
+}
+
+interface InFlightRunState {
+  sessionKey: string;
+  runId: string | null;
+  lastUserMessageAt: number | null;
+}
+
+const _inFlightRunBySession = new Map<string, InFlightRunState>();
+const _sessionKeyByRunId = new Map<string, string>();
+
+function trackInFlightRun(sessionKey: string, runId: string | null, lastUserMessageAt?: number | null): void {
+  if (!sessionKey) return;
+  const previous = _inFlightRunBySession.get(sessionKey);
+  const next: InFlightRunState = {
+    sessionKey,
+    runId: runId || previous?.runId || null,
+    lastUserMessageAt: lastUserMessageAt ?? previous?.lastUserMessageAt ?? null,
+  };
+  _inFlightRunBySession.set(sessionKey, next);
+  if (next.runId) {
+    _sessionKeyByRunId.set(next.runId, sessionKey);
+  }
+}
+
+function finishInFlightRun(sessionKey: string | null | undefined, runId?: string | null): void {
+  if (sessionKey) {
+    const existing = _inFlightRunBySession.get(sessionKey);
+    if (!runId || !existing?.runId || existing.runId === runId) {
+      _inFlightRunBySession.delete(sessionKey);
+    }
+  }
+  if (runId) {
+    _sessionKeyByRunId.delete(runId);
+  }
+  if (_sendingSessionKey && (!_inFlightRunBySession.has(_sendingSessionKey))) {
+    _sendingSessionKey = null;
+  }
+}
 
 /** Normalize a timestamp to milliseconds. Handles both seconds and ms. */
 function toMs(ts: number): number {
@@ -231,6 +307,9 @@ function msgCacheKey(sessionKey: string): string {
 function saveMsgCache(sessionKey: string, messages: RawMessage[]): void {
   if (!sessionKey) return;
   try {
+    if (messages.length === 0 && localStorage.getItem(msgCacheKey(sessionKey))) {
+      return;
+    }
     const toSave = messages.slice(-MSG_CACHE_MAX_PER_SESSION);
     localStorage.setItem(msgCacheKey(sessionKey), JSON.stringify(toSave));
   } catch { /* ignore quota errors */ }
@@ -244,6 +323,40 @@ function loadMsgCache(sessionKey: string): RawMessage[] {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as RawMessage[]) : [];
   } catch { return []; }
+}
+
+function getMessageDedupeKey(message: RawMessage): string {
+  const text = getMessageText(message.content).trim();
+  return [
+    message.id || '',
+    message.role || '',
+    message.timestamp ? String(Math.round(toMs(message.timestamp))) : '',
+    text.slice(0, 180),
+  ].join('|');
+}
+
+function isSameChatMessage(a: RawMessage, b: RawMessage): boolean {
+  if (a.id && b.id && a.id === b.id) return true;
+  if (a.role !== b.role) return false;
+  const aText = getMessageText(a.content).trim();
+  const bText = getMessageText(b.content).trim();
+  if (aText !== bText) return false;
+  if (a.timestamp && b.timestamp) {
+    return Math.abs(toMs(a.timestamp) - toMs(b.timestamp)) < 30_000;
+  }
+  return Boolean(aText);
+}
+
+function appendMessageToSessionCache(sessionKey: string, message: RawMessage): RawMessage[] {
+  const cached = loadMsgCache(sessionKey);
+  const msgKey = getMessageDedupeKey(message);
+  const exists = cached.some((item) => {
+    if (isSameChatMessage(item, message)) return true;
+    return getMessageDedupeKey(item) === msgKey;
+  });
+  const next = exists ? cached : [...cached, message].slice(-MSG_CACHE_MAX_PER_SESSION);
+  saveMsgCache(sessionKey, next);
+  return next;
 }
 
 /** Extract plain text from message content (string or content blocks) */
@@ -737,6 +850,19 @@ function getAgentIdFromSessionKey(sessionKey: string): string {
   return parts[1] || 'main';
 }
 
+function isPrimaryChatSessionKey(sessionKey: string): boolean {
+  if (!sessionKey.startsWith('agent:')) return true;
+  const parts = sessionKey.split(':');
+  return !parts.includes('subagent');
+}
+
+function isPrimaryChatSession(session: ChatSession): boolean {
+  if (!session.key || !isPrimaryChatSessionKey(session.key)) return false;
+  if (session.spawnedBy || session.parentSessionKey || session.parentRunId || session.parentId) return false;
+  const kind = String(session.kind || '').toLowerCase();
+  return kind !== 'subagent' && kind !== 'child' && kind !== 'spawned';
+}
+
 function parseSessionUpdatedAtMs(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return toMs(value);
@@ -748,6 +874,64 @@ function parseSessionUpdatedAtMs(value: unknown): number | undefined {
     }
   }
   return undefined;
+}
+
+function readSessionModel(session: ChatSession | undefined): { model: string; provider: string; thinkingLevel: string } {
+  return {
+    model: String(session?.model || '').trim(),
+    provider: String(session?.modelProvider || '').trim(),
+    thinkingLevel: String(session?.thinkingLevel || '').trim(),
+  };
+}
+
+function readModelFromGatewaySession(value: unknown): { model: string; provider: string; thinkingLevel: string } {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    model: String(record.model || record.modelOverride || '').trim(),
+    provider: String(record.modelProvider || record.providerOverride || '').trim(),
+    thinkingLevel: String(record.thinkingLevel || '').trim(),
+  };
+}
+
+async function ensureDeepSeekV4ThinkingOffBeforeSend(sessionKey: string): Promise<void> {
+  if (!sessionKey) return;
+
+  const state = useChatStore.getState();
+  const localSession = state.sessions.find((session) => session.key === sessionKey);
+  let { model, provider, thinkingLevel } = readSessionModel(localSession);
+
+  if (!model || !provider) {
+    try {
+      const data = await useGatewayStore.getState().rpc<Record<string, unknown>>('sessions.list', {}, 15_000);
+      const rawSessions = Array.isArray(data.sessions) ? data.sessions as unknown[] : [];
+      const rawSession = rawSessions.find((item) => {
+        const record = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+        return String(record.key || '') === sessionKey;
+      });
+      const fromSession = readModelFromGatewaySession(rawSession);
+      const defaults = readModelFromGatewaySession(data.defaults);
+      model = fromSession.model || model || defaults.model;
+      provider = fromSession.provider || provider || defaults.provider;
+      thinkingLevel = fromSession.thinkingLevel || thinkingLevel || defaults.thinkingLevel;
+    } catch (err) {
+      console.warn('[chat.deepseek] failed to inspect session model before send:', err);
+    }
+  }
+
+  if (!shouldForceDeepSeekV4ThinkingOff(model, provider) || thinkingLevel === 'off') return;
+
+  await useGatewayStore.getState().rpc(
+    'sessions.patch',
+    { key: sessionKey, thinkingLevel: 'off' },
+    15_000,
+  );
+
+  useChatStore.setState((current) => ({
+    thinkingLevel: current.currentSessionKey === sessionKey ? 'off' : current.thinkingLevel,
+    sessions: current.sessions.map((session) => (
+      session.key === sessionKey ? { ...session, thinkingLevel: 'off' } : session
+    )),
+  }));
 }
 
 async function loadCronFallbackMessages(sessionKey: string, limit = 200): Promise<RawMessage[]> {
@@ -792,7 +976,7 @@ function clearSessionEntryFromMap<T extends Record<string, unknown>>(entries: T,
 function buildSessionSwitchPatch(
   state: Pick<
     ChatState,
-    'currentSessionKey' | 'messages' | 'sessions' | 'sessionLabels' | 'sessionLastActivity'
+    'currentSessionKey' | 'messages' | 'sessions' | 'sessionLabels' | 'favoriteSessionKeys' | 'sessionLastActivity'
   >,
   nextSessionKey: string,
 ): Partial<ChatState> {
@@ -800,10 +984,14 @@ function buildSessionSwitchPatch(
   const nextSessions = leavingEmpty
     ? state.sessions.filter((session) => session.key !== state.currentSessionKey)
     : state.sessions;
+  const nextFavoriteSessionKeys = leavingEmpty
+    ? clearSessionEntryFromMap(state.favoriteSessionKeys, state.currentSessionKey)
+    : state.favoriteSessionKeys;
+  if (leavingEmpty && state.favoriteSessionKeys[state.currentSessionKey]) {
+    saveSessionFavorites(nextFavoriteSessionKeys);
+  }
 
-  // Clear the module-level "sending origin" so stale events from the previous
-  // session are discarded in handleChatEvent (events that lack a sessionKey).
-  _sendingSessionKey = null;
+  const nextInFlight = _inFlightRunBySession.get(nextSessionKey);
   return {
     currentSessionKey: nextSessionKey,
     currentAgentId: getAgentIdFromSessionKey(nextSessionKey),
@@ -811,6 +999,7 @@ function buildSessionSwitchPatch(
     sessionLabels: leavingEmpty
       ? clearSessionEntryFromMap(state.sessionLabels, state.currentSessionKey)
       : state.sessionLabels,
+    favoriteSessionKeys: nextFavoriteSessionKeys,
     sessionLastActivity: leavingEmpty
       ? clearSessionEntryFromMap(state.sessionLastActivity, state.currentSessionKey)
       : state.sessionLastActivity,
@@ -818,11 +1007,11 @@ function buildSessionSwitchPatch(
     streamingText: '',
     streamingMessage: null,
     streamingTools: [],
-    sending: false,
-    activeRunId: null,
+    sending: !!nextInFlight,
+    activeRunId: nextInFlight?.runId ?? null,
     error: null,
     pendingFinal: false,
-    lastUserMessageAt: null,
+    lastUserMessageAt: nextInFlight?.lastUserMessageAt ?? null,
     pendingToolImages: [],
   };
 }
@@ -959,6 +1148,144 @@ function appendPreservedLocalPartials(incoming: RawMessage[], previous: RawMessa
     return true;
   });
   return extra.length > 0 ? [...incoming, ...extra] : incoming;
+}
+
+async function refreshSessionHistoryCache(sessionKey: string, limit = 200): Promise<void> {
+  if (!sessionKey) return;
+  try {
+    const data = await useGatewayStore.getState().rpc<Record<string, unknown>>(
+      'chat.history',
+      { sessionKey, limit },
+    );
+    let rawMessages = Array.isArray(data?.messages) ? data.messages as RawMessage[] : [];
+    if (rawMessages.length === 0 && isCronSessionKey(sessionKey)) {
+      rawMessages = await loadCronFallbackMessages(sessionKey, limit);
+    }
+    if (rawMessages.length === 0) return;
+
+    const messagesWithToolImages = enrichWithToolResultFiles(rawMessages);
+    const filteredMessages = messagesWithToolImages.filter((msg) => !isToolResultRole(msg.role));
+    const enrichedMessages = enrichWithCachedImages(filteredMessages);
+    const cached = loadMsgCache(sessionKey);
+    const finalMessages = appendPreservedLocalPartials(enrichedMessages, cached);
+    saveMsgCache(sessionKey, finalMessages);
+
+    const lastMsg = finalMessages[finalMessages.length - 1];
+    const lastAt = lastMsg?.timestamp ? toMs(lastMsg.timestamp) : Date.now();
+    useChatStore.setState((s) => {
+      const patch: Partial<ChatState> = {
+        sessionLastActivity: { ...s.sessionLastActivity, [sessionKey]: lastAt },
+      };
+
+      if (!sessionKey.endsWith(':main') && !s.sessionLabels[sessionKey]) {
+        const firstUserMsg = finalMessages.find((m) => m.role === 'user');
+        const labelText = firstUserMsg ? getMessageText(firstUserMsg.content).trim() : '';
+        if (labelText) {
+          patch.sessionLabels = {
+            ...s.sessionLabels,
+            [sessionKey]: labelText.length > 50 ? `${labelText.slice(0, 50)}…` : labelText,
+          };
+        }
+      }
+
+      if (s.currentSessionKey === sessionKey) {
+        patch.messages = finalMessages;
+        patch.loading = false;
+      }
+
+      return patch;
+    });
+  } catch (error) {
+    console.warn(`[chat] Failed to refresh background session history (${sessionKey}):`, error);
+  }
+}
+
+function handleBackgroundChatEvent(
+  sessionKey: string,
+  runId: string,
+  resolvedState: string,
+  event: Record<string, unknown>,
+): void {
+  if (!sessionKey) return;
+  if (runId) trackInFlightRun(sessionKey, runId);
+
+  switch (resolvedState) {
+    case 'started': {
+      trackInFlightRun(sessionKey, runId || null);
+      break;
+    }
+    case 'final': {
+      const finalMsg = event.message as RawMessage | undefined;
+      if (finalMsg && !isToolResultRole(finalMsg.role)) {
+        const hasOutput = hasNonToolAssistantContent(finalMsg);
+        const msgId = finalMsg.id || (runId ? `run-${runId}` : `bg-${Date.now()}`);
+        const normalized: RawMessage = {
+          ...finalMsg,
+          role: (finalMsg.role || 'assistant') as RawMessage['role'],
+          id: msgId,
+          timestamp: finalMsg.timestamp ?? Math.floor(Date.now() / 1000),
+        };
+        appendMessageToSessionCache(sessionKey, normalized);
+        useChatStore.setState((s) => ({
+          sessionLastActivity: {
+            ...s.sessionLastActivity,
+            [sessionKey]: toMs(normalized.timestamp || Math.floor(Date.now() / 1000)),
+          },
+        }));
+        if (hasOutput) {
+          finishInFlightRun(sessionKey, runId);
+        }
+      } else if (!finalMsg) {
+        finishInFlightRun(sessionKey, runId);
+      }
+      void refreshSessionHistoryCache(sessionKey);
+      break;
+    }
+    case 'error':
+    case 'aborted': {
+      finishInFlightRun(sessionKey, runId);
+      void refreshSessionHistoryCache(sessionKey);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function isMessageOlderThanInFlightUser(message: unknown, inFlight: InFlightRunState | undefined): boolean {
+  if (!inFlight?.lastUserMessageAt || !message || typeof message !== 'object') return false;
+  const timestamp = (message as RawMessage).timestamp;
+  if (!timestamp) return false;
+  return toMs(timestamp) < inFlight.lastUserMessageAt - 500;
+}
+
+function mergeOptimisticDuringSend(incoming: RawMessage[], previous: RawMessage[], lastUserMessageAt: number | null): RawMessage[] {
+  if (!lastUserMessageAt) return incoming;
+  const userMs = toMs(lastUserMessageAt);
+  const hasUser = incoming.some(
+    (m) => m.role === 'user' && m.timestamp && Math.abs(toMs(m.timestamp) - userMs) < 30_000,
+  );
+  const optimistic = [...previous].reverse().find(
+    (m) => m.role === 'user' && m.timestamp && Math.abs(toMs(m.timestamp) - userMs) < 30_000,
+  );
+  const withOptimistic = hasUser || !optimistic ? incoming : [...incoming, optimistic];
+
+  // During an active run, Gateway history can lag behind the renderer state.
+  // Never let a short/empty history response remove messages already visible
+  // in this session; only merge newly discovered rows into the existing list.
+  const merged = [...previous];
+  for (const msg of withOptimistic) {
+    const existingIndex = merged.findIndex((item) => {
+      if (isSameChatMessage(item, msg)) return true;
+      return getMessageDedupeKey(item) === getMessageDedupeKey(msg);
+    });
+    if (existingIndex >= 0) {
+      merged[existingIndex] = { ...merged[existingIndex], ...msg };
+    } else {
+      merged.push(msg);
+    }
+  }
+  return merged;
 }
 
 function summarizeToolOutput(text: string): string | undefined {
@@ -1165,6 +1492,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentSessionKey: DEFAULT_SESSION_KEY,
   currentAgentId: 'main',
   sessionLabels: {},
+  favoriteSessionKeys: loadSessionFavorites(),
   sessionLastActivity: {},
 
   showThinking: true,
@@ -1181,10 +1509,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
           key: String(s.key || ''),
           label: s.label ? String(s.label) : undefined,
           displayName: s.displayName ? String(s.displayName) : undefined,
+          kind: s.kind ? String(s.kind) : undefined,
+          spawnedBy: s.spawnedBy ? String(s.spawnedBy) : undefined,
+          parentSessionKey: s.parentSessionKey ? String(s.parentSessionKey) : undefined,
+          parentRunId: s.parentRunId ? String(s.parentRunId) : undefined,
+          parentId: s.parentId ? String(s.parentId) : undefined,
           thinkingLevel: s.thinkingLevel ? String(s.thinkingLevel) : undefined,
           model: s.model ? String(s.model) : undefined,
+          modelProvider: s.modelProvider ? String(s.modelProvider) : undefined,
           updatedAt: parseSessionUpdatedAtMs(s.updatedAt),
-        })).filter((s: ChatSession) => s.key);
+        })).filter((s: ChatSession) => isPrimaryChatSession(s));
 
         const canonicalBySuffix = new Map<string, string>();
         for (const session of sessions) {
@@ -1246,12 +1580,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
               }
             }
           }
+          const remappedFavorites: Record<string, boolean> = { ...state.favoriteSessionKeys };
+          for (const [k, v] of Object.entries(state.favoriteSessionKeys || {})) {
+            if (!v || k.startsWith('agent:')) continue;
+            const canonical = canonicalBySuffix.get(k);
+            if (canonical) {
+              remappedFavorites[canonical] = true;
+              delete remappedFavorites[k];
+            }
+          }
+          saveSessionFavorites(remappedFavorites);
 
           return {
             sessions: sessionsWithCurrent,
             currentSessionKey: nextSessionKey,
             currentAgentId: getAgentIdFromSessionKey(nextSessionKey),
             sessionLabels: remappedLabels,
+            favoriteSessionKeys: remappedFavorites,
             sessionLastActivity: {
               ...state.sessionLastActivity,
               ...discoveredActivity,
@@ -1309,6 +1654,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   switchSession: (key: string) => {
     if (key === get().currentSessionKey) return;
+    flushPartialStreamingToMessages(get, set);
+    saveMsgCache(get().currentSessionKey, get().messages);
     // Cache-first: pre-populate with localStorage snapshot so the user sees
     // content instantly while the Gateway RPC runs in the background.
     const cached = loadMsgCache(key);
@@ -1359,6 +1706,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((s) => ({
         sessions: remaining,
         sessionLabels: Object.fromEntries(Object.entries(s.sessionLabels).filter(([k]) => k !== key)),
+        favoriteSessionKeys: Object.fromEntries(Object.entries(s.favoriteSessionKeys).filter(([k]) => k !== key)),
         sessionLastActivity: Object.fromEntries(Object.entries(s.sessionLastActivity).filter(([k]) => k !== key)),
         messages: [],
         streamingText: '',
@@ -1379,9 +1727,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((s) => ({
         sessions: remaining,
         sessionLabels: Object.fromEntries(Object.entries(s.sessionLabels).filter(([k]) => k !== key)),
+        favoriteSessionKeys: Object.fromEntries(Object.entries(s.favoriteSessionKeys).filter(([k]) => k !== key)),
         sessionLastActivity: Object.fromEntries(Object.entries(s.sessionLastActivity).filter(([k]) => k !== key)),
       }));
     }
+    saveSessionFavorites(Object.fromEntries(Object.entries(get().favoriteSessionKeys).filter(([k]) => k !== key)));
   },
 
   // ── New session ──
@@ -1398,6 +1748,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ?? DEFAULT_CANONICAL_PREFIX;
     const newKey = `${prefix}:session-${Date.now()}`;
     const newSessionEntry: ChatSession = { key: newKey, displayName: newKey };
+    if (leavingEmpty && get().favoriteSessionKeys[currentSessionKey]) {
+      saveSessionFavorites(clearSessionEntryFromMap(get().favoriteSessionKeys, currentSessionKey));
+    }
     set((s) => ({
       currentSessionKey: newKey,
       currentAgentId: getAgentIdFromSessionKey(newKey),
@@ -1408,6 +1761,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sessionLabels: leavingEmpty
         ? Object.fromEntries(Object.entries(s.sessionLabels).filter(([k]) => k !== currentSessionKey))
         : s.sessionLabels,
+      favoriteSessionKeys: leavingEmpty
+        ? Object.fromEntries(Object.entries(s.favoriteSessionKeys).filter(([k]) => k !== currentSessionKey))
+        : s.favoriteSessionKeys,
       sessionLastActivity: leavingEmpty
         ? Object.fromEntries(Object.entries(s.sessionLastActivity).filter(([k]) => k !== currentSessionKey))
         : s.sessionLastActivity,
@@ -1433,10 +1789,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // in the sidebar.
     const isEmptyNonMain = !currentSessionKey.endsWith(':main') && messages.length === 0;
     if (!isEmptyNonMain) return;
+    if (get().favoriteSessionKeys[currentSessionKey]) {
+      saveSessionFavorites(clearSessionEntryFromMap(get().favoriteSessionKeys, currentSessionKey));
+    }
     set((s) => ({
       sessions: s.sessions.filter((sess) => sess.key !== currentSessionKey),
       sessionLabels: Object.fromEntries(
         Object.entries(s.sessionLabels).filter(([k]) => k !== currentSessionKey),
+      ),
+      favoriteSessionKeys: Object.fromEntries(
+        Object.entries(s.favoriteSessionKeys).filter(([k]) => k !== currentSessionKey),
       ),
       sessionLastActivity: Object.fromEntries(
         Object.entries(s.sessionLastActivity).filter(([k]) => k !== currentSessionKey),
@@ -1473,21 +1835,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // The Gateway may not include the user's message in chat.history
       // until the run completes, causing it to flash out of the UI.
       let finalMessages = enrichedMessages;
-      const userMsgAt = get().lastUserMessageAt;
-      if (get().sending && userMsgAt) {
-        const userMsMs = toMs(userMsgAt);
-        const hasRecentUser = enrichedMessages.some(
-          (m) => m.role === 'user' && m.timestamp && Math.abs(toMs(m.timestamp) - userMsMs) < 5000,
-        );
-        if (!hasRecentUser) {
-          const currentMsgs = get().messages;
-          const optimistic = [...currentMsgs].reverse().find(
-            (m) => m.role === 'user' && m.timestamp && Math.abs(toMs(m.timestamp) - userMsMs) < 5000,
-          );
-          if (optimistic) {
-            finalMessages = [...enrichedMessages, optimistic];
-          }
-        }
+      const stateBeforeMerge = get();
+      const userMsgAt = stateBeforeMerge.lastUserMessageAt;
+      if (stateBeforeMerge.sending && userMsgAt) {
+        finalMessages = mergeOptimisticDuringSend(enrichedMessages, stateBeforeMerge.messages, userMsgAt);
       }
 
       finalMessages = appendPreservedLocalPartials(finalMessages, get().messages);
@@ -1545,8 +1896,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // This surfaces progress via the pendingFinal → ActivityIndicator path.
       const userMsTs = lastUserMessageAt ? toMs(lastUserMessageAt) : 0;
       const isAfterUserMsg = (msg: RawMessage): boolean => {
-        if (!userMsTs || !msg.timestamp) return true;
-        return toMs(msg.timestamp) >= userMsTs;
+        if (!userMsTs) return true;
+        if (!msg.timestamp) return false;
+        return toMs(msg.timestamp) >= userMsTs - 500;
       };
 
       if (isSendingNow && !pendingFinal) {
@@ -1585,6 +1937,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const thinkingLevel = data.thinkingLevel ? String(data.thinkingLevel) : null;
         if (rawMessages.length === 0 && isCronSessionKey(requestSessionKey)) {
           rawMessages = await loadCronFallbackMessages(requestSessionKey, 200);
+        }
+        if (rawMessages.length === 0) {
+          const cached = loadMsgCache(requestSessionKey);
+          const current = get().currentSessionKey === requestSessionKey ? get().messages : [];
+          const fallback = cached.length > 0 ? cached : current;
+          if (fallback.length > 0) {
+            set({ messages: fallback, thinkingLevel, loading: false });
+            return;
+          }
         }
 
         applyLoadedMessages(rawMessages, thinkingLevel);
@@ -1646,19 +2007,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const enrichedMessages = enrichWithCachedImages(filteredMessages);
 
       let finalMessages = enrichedMessages;
-      const userMsgAt = get().lastUserMessageAt;
-      if (get().sending && userMsgAt) {
-        const userMsMs = toMs(userMsgAt);
-        const hasRecentUser = enrichedMessages.some(
-          (m) => m.role === 'user' && m.timestamp && Math.abs(toMs(m.timestamp) - userMsMs) < 5000,
-        );
-        if (!hasRecentUser) {
-          const currentMsgs = get().messages;
-          const optimistic = [...currentMsgs].reverse().find(
-            (m) => m.role === 'user' && m.timestamp && Math.abs(toMs(m.timestamp) - userMsMs) < 5000,
-          );
-          if (optimistic) finalMessages = [...enrichedMessages, optimistic];
-        }
+      const stateBeforeMerge = get();
+      const userMsgAt = stateBeforeMerge.lastUserMessageAt;
+      if (stateBeforeMerge.sending && userMsgAt) {
+        finalMessages = mergeOptimisticDuringSend(enrichedMessages, stateBeforeMerge.messages, userMsgAt);
       }
 
       finalMessages = appendPreservedLocalPartials(finalMessages, get().messages);
@@ -1713,6 +2065,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (rawMessages.length === 0 && isCronSessionKey(requestSessionKey)) {
           rawMessages = await loadCronFallbackMessages(requestSessionKey, limit);
         }
+        if (rawMessages.length === 0) {
+          const cached = loadMsgCache(requestSessionKey);
+          const current = get().currentSessionKey === requestSessionKey ? get().messages : [];
+          const fallback = cached.length > 0 ? cached : current;
+          if (fallback.length > 0) {
+            set({ messages: fallback, thinkingLevel, loading: false });
+            return;
+          }
+        }
         applyLoadedMessages(rawMessages, thinkingLevel);
       } else {
         const fallbackMessages = await loadCronFallbackMessages(requestSessionKey, limit);
@@ -1760,13 +2121,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const targetSessionKey = resolveMainSessionKeyForAgent(targetAgentId) ?? get().currentSessionKey;
 
     if (targetSessionKey !== get().currentSessionKey) {
+      flushPartialStreamingToMessages(get, set);
+      saveMsgCache(get().currentSessionKey, get().messages);
       set((s) => buildSessionSwitchPatch(s, targetSessionKey));
       await get().loadHistory(true);
     }
 
     const currentSessionKey = targetSessionKey;
-    // Record origin session so handleChatEvent can discard events arriving
-    // after the user has switched to a different session.
     _sendingSessionKey = currentSessionKey;
 
     // Add user message optimistically (with local file metadata for UI display)
@@ -1794,6 +2155,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       pendingFinal: false,
       lastUserMessageAt: nowMs,
     }));
+    trackInFlightRun(currentSessionKey, null, nowMs);
+    saveMsgCache(currentSessionKey, get().messages);
 
     // Update session label with first user message text as soon as it's sent
     const { sessionLabels, messages } = get();
@@ -1813,15 +2176,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     clearHistoryPoll();
     clearErrorRecoveryTimer();
 
-    const POLL_START_DELAY = 3_000;
-    const POLL_INTERVAL = 4_000;
+    const POLL_START_DELAY = 1_000;
+    const POLL_INTERVAL = 2_500;
     const STREAM_STALE_MS = 25_000;
     const pollHistory = () => {
       const state = get();
-      if (!state.sending) { clearHistoryPoll(); return; }
+      if (!_inFlightRunBySession.has(currentSessionKey)) { clearHistoryPoll(); return; }
+      const isVisibleSession = state.currentSessionKey === currentSessionKey;
 
       // 正常流式过程中不打断；但若长时间没有新事件，认为流式中断，改为主动拉历史
-      if (state.streamingMessage) {
+      if (isVisibleSession && state.streamingMessage) {
         const idleMs = Date.now() - _lastChatEventAt;
         if (idleMs < STREAM_STALE_MS) {
           _historyPollTimer = setTimeout(pollHistory, POLL_INTERVAL);
@@ -1832,7 +2196,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ streamingMessage: null, streamingText: '' });
       }
 
-      state.loadHistory(true);
+      if (isVisibleSession) {
+        state.loadHistory(true);
+      } else {
+        void refreshSessionHistoryCache(currentSessionKey);
+      }
       _historyPollTimer = setTimeout(pollHistory, POLL_INTERVAL);
     };
     _historyPollTimer = setTimeout(pollHistory, POLL_START_DELAY);
@@ -1840,9 +2208,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const SAFETY_TIMEOUT_MS = 90_000;
     const checkStuck = () => {
       const state = get();
-      if (!state.sending) return;
-      if (state.streamingMessage || state.streamingText) return;
-      if (state.pendingFinal) {
+      if (!_inFlightRunBySession.has(currentSessionKey)) return;
+      const isVisibleSession = state.currentSessionKey === currentSessionKey;
+      if (isVisibleSession && (state.streamingMessage || state.streamingText)) return;
+      if (isVisibleSession && state.pendingFinal) {
         setTimeout(checkStuck, 10_000);
         return;
       }
@@ -1851,17 +2220,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
       clearHistoryPoll();
-      set({
-        error: 'No response received from the model. The provider may be unavailable or the API key may have insufficient quota. Please check your provider settings.',
-        sending: false,
-        activeRunId: null,
-        lastUserMessageAt: null,
-      });
+      finishInFlightRun(currentSessionKey, _inFlightRunBySession.get(currentSessionKey)?.runId);
+      if (get().currentSessionKey === currentSessionKey) {
+        set({
+          error: 'No response received from the model. The provider may be unavailable or the API key may have insufficient quota. Please check your provider settings.',
+          sending: false,
+          activeRunId: null,
+          lastUserMessageAt: null,
+        });
+      }
     };
     setTimeout(checkStuck, 30_000);
 
+    const idempotencyKey = crypto.randomUUID();
+
     try {
-      const idempotencyKey = crypto.randomUUID();
       const hasMedia = attachments && attachments.length > 0;
       const sendPayloadBase: Record<string, unknown> = {
         sessionKey: currentSessionKey,
@@ -1893,6 +2266,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Longer timeout for chat sends to tolerate high-latency networks (avoids connect error)
       const CHAT_SEND_TIMEOUT_MS = 120_000;
 
+      await ensureDeepSeekV4ThinkingOffBeforeSend(currentSessionKey);
+
       if (hasMedia) {
         // 将媒体附件信息以 [media attached: ...] 标记嵌入消息文本，通过 chat.send RPC 发送
         const mediaTagLines = attachments!.map((a) =>
@@ -1917,10 +2292,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (!result.success) {
         clearHistoryPoll();
-        _sendingSessionKey = null;
+        finishInFlightRun(currentSessionKey, null);
         set({ error: result.error || 'Failed to send message', sending: false });
       } else if (result.result?.runId) {
-        set({ activeRunId: result.result.runId });
+        trackInFlightRun(currentSessionKey, result.result.runId, nowMs);
+        if (get().currentSessionKey === currentSessionKey) {
+          set({ activeRunId: result.result.runId });
+        }
       }
     } catch (err) {
       const errText = String(err || '');
@@ -1940,6 +2318,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }, 120_000);
           if (retryThinkOff?.runId) {
             _sendingSessionKey = currentSessionKey;
+            trackInFlightRun(currentSessionKey, retryThinkOff.runId, nowMs);
             set({ activeRunId: retryThinkOff.runId, error: null, sending: true });
             return;
           }
@@ -1956,6 +2335,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }, 120_000);
           if (retryResult?.runId) {
             _sendingSessionKey = currentSessionKey;
+            trackInFlightRun(currentSessionKey, retryResult.runId, nowMs);
             set({ activeRunId: retryResult.runId, error: null, sending: true });
             return;
           }
@@ -1991,6 +2371,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }, 120_000);
           if (freshResult?.runId) {
             _sendingSessionKey = recoveryKey;
+            trackInFlightRun(recoveryKey, freshResult.runId, Date.now());
             set({ activeRunId: freshResult.runId, error: null, sending: true });
             return;
           }
@@ -1999,7 +2380,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
       clearHistoryPoll();
-      _sendingSessionKey = null;
+      finishInFlightRun(currentSessionKey, _inFlightRunBySession.get(currentSessionKey)?.runId);
       set({
         error: formatDeepSeekReasoningReplayError(errText),
         sending: false,
@@ -2013,8 +2394,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     clearHistoryPoll();
     clearErrorRecoveryTimer();
     flushPartialStreamingToMessages(get, set);
-    _sendingSessionKey = null;
-    const { currentSessionKey } = get();
+    const { currentSessionKey, activeRunId } = get();
+    finishInFlightRun(currentSessionKey, activeRunId);
     set({ sending: false, streamingText: '', streamingMessage: null, pendingFinal: false, lastUserMessageAt: null, pendingToolImages: [] });
     set({ streamingTools: [] });
 
@@ -2038,23 +2419,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const eventSessionKey = event.sessionKey != null ? String(event.sessionKey) : null;
     const { activeRunId, currentSessionKey, sending } = get();
 
-    // Only process events for the current session (when sessionKey is present)
-    if (eventSessionKey != null && eventSessionKey !== currentSessionKey) return;
-    // Ambiguous event (no session key): discard if it came from a session the
-    // user has already navigated away from.
-    if (eventSessionKey == null && _sendingSessionKey != null && _sendingSessionKey !== currentSessionKey) return;
-    // Ambiguous event (no session key): only accept when it carries runId and
-    // runId matches the active run. This prevents cross-session message bleed.
-    if (eventSessionKey == null) {
-      if (!runId) return;
-      if (!activeRunId || runId !== activeRunId) return;
-    }
-
-    // Only process events for the active run (or if no active run set)
-    if (activeRunId && runId && runId !== activeRunId) return;
-
-    _lastChatEventAt = Date.now();
-
     // Defensive: if state is missing but we have a message, try to infer state.
     let resolvedState = eventState;
     if (!resolvedState && event.message && typeof event.message === 'object') {
@@ -2066,6 +2430,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
         resolvedState = 'delta';
       }
     }
+
+    const mappedSessionKey = runId ? _sessionKeyByRunId.get(runId) : undefined;
+    const targetSessionKey = eventSessionKey ?? mappedSessionKey ?? _sendingSessionKey ?? currentSessionKey;
+
+    if (eventSessionKey && runId) {
+      trackInFlightRun(eventSessionKey, runId);
+    }
+
+    // Ambiguous event (no session key) must be tied to a known run/session.
+    // Otherwise it can bleed into whichever conversation is currently visible.
+    if (eventSessionKey == null) {
+      if (!runId) return;
+      if (!mappedSessionKey && (!activeRunId || runId !== activeRunId)) return;
+    }
+
+    if (targetSessionKey !== currentSessionKey) {
+      _lastChatEventAt = Date.now();
+      handleBackgroundChatEvent(targetSessionKey, runId, resolvedState, event);
+      return;
+    }
+
+    const currentInFlight = _inFlightRunBySession.get(currentSessionKey);
+    if (
+      currentInFlight
+      && runId
+      && !currentInFlight.runId
+      && resolvedState !== 'started'
+      && isMessageOlderThanInFlightUser(event.message, currentInFlight)
+    ) {
+      return;
+    }
+
+    // Only process events for the visible session's active run. Events mapped
+    // to other sessions were handled above and must not mutate this view.
+    if (activeRunId && runId && runId !== activeRunId) return;
+
+    _lastChatEventAt = Date.now();
 
     // Only pause the history poll when we receive actual streaming data.
     // The gateway sends "agent" events with { phase, startedAt } that carry
@@ -2079,6 +2480,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // show loading/streaming in the app when this session has an active run.
       const { sending } = get();
       if (!sending && runId) {
+        trackInFlightRun(currentSessionKey, runId);
         set({ sending: true, activeRunId: runId, error: null });
       }
     }
@@ -2086,8 +2488,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     switch (resolvedState) {
       case 'started': {
         // Run just started (e.g. from console); show loading immediately.
+        if (runId) trackInFlightRun(currentSessionKey, runId);
         const { sending: currentSending } = get();
         if (!currentSending && runId) {
+          trackInFlightRun(currentSessionKey, runId);
           set({ sending: true, activeRunId: runId, error: null });
         }
         break;
@@ -2270,7 +2674,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           });
           if (hasOutput && !toolOnly) {
             clearHistoryPoll();
-            _sendingSessionKey = null;
+            finishInFlightRun(currentSessionKey, runId);
             // Quietly reload to get Gateway's authoritative record (with stable IDs)
             void get().loadHistory(true);
           }
@@ -2332,7 +2736,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const state = get();
             if (state.sending && !state.streamingMessage) {
               clearHistoryPoll();
-              _sendingSessionKey = null;
+              finishInFlightRun(currentSessionKey, runId);
               // Grace period expired with no recovery — finalize the error
               set({
                 sending: false,
@@ -2346,7 +2750,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }, ERROR_RECOVERY_GRACE_MS);
         } else {
           clearHistoryPoll();
-          _sendingSessionKey = null;
+          finishInFlightRun(currentSessionKey, runId);
           set({ sending: false, activeRunId: null, lastUserMessageAt: null });
         }
         break;
@@ -2355,7 +2759,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         clearHistoryPoll();
         clearErrorRecoveryTimer();
         flushPartialStreamingToMessages(get, set);
-        _sendingSessionKey = null;
+        finishInFlightRun(currentSessionKey, runId);
         set({
           sending: false,
           activeRunId: null,
@@ -2395,6 +2799,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({
       sessionLabels: { ...s.sessionLabels, [sessionKey]: trimmed || s.sessionLabels[sessionKey] || '' },
     }));
+  },
+
+  toggleSessionFavorite: (sessionKey: string) => {
+    set((s) => {
+      const next = { ...s.favoriteSessionKeys };
+      if (next[sessionKey]) {
+        delete next[sessionKey];
+      } else {
+        next[sessionKey] = true;
+      }
+      saveSessionFavorites(next);
+      return { favoriteSessionKeys: next };
+    });
   },
 
   // ── Refresh: reload history + sessions ──

@@ -1,0 +1,52 @@
+太一阅读平台 — 部署备忘（非 Markdown 文档）
+
+一、架构
+  浏览器 / Android WebView → 静态页 https://axonclawx.cn/taiyi-app/（Hash 路由）
+  API → nginx 反代 /taiyi-api/ → Node 服务 127.0.0.1:3450
+  数据：SQLite server/data/taiyi.db；正文：服务器上 TAIYI_CONTENT_DIR 指向 .md 目录
+
+二、服务器环境变量（server/.env）
+  JWT_SECRET（≥32 字符）
+  TAIYI_CONTENT_DIR=/path/to/卷二正文
+  BOOTSTRAP_ADMIN_USER / BOOTSTRAP_ADMIN_PASS（仅库为空时创建管理员）
+  ALLOW_REGISTER=1 或 INVITE_CODE=xxx 控制注册
+
+三、nginx 片段（加入现有 axonclawx server 块，放在 location / 之前）
+  location /taiyi-api/ {
+      proxy_pass http://127.0.0.1:3450/;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /taiyi-app/ {
+      alias /var/www/axonclawx/taiyi-app/;
+      index index.html;
+  }
+
+  将 web/dist/* 同步到 /var/www/axonclawx/taiyi-app/
+
+四、systemd 示例 /etc/systemd/system/taiyi-reader.service
+  [Unit]
+  Description=Taiyi reader API
+  After=network.target
+
+  [Service]
+  Type=simple
+  WorkingDirectory=/opt/taiyi-reader-platform/server
+  EnvironmentFile=/opt/taiyi-reader-platform/server/.env
+  ExecStart=/usr/bin/node src/index.mjs
+  Restart=on-failure
+
+  [Install]
+  WantedBy=multi-user.target
+
+五、Android APK（本机需 Android SDK + JDK 17）
+  export JAVA_HOME=$(/usr/libexec/java_home -v 17)   # 或本机 JDK 17 路径
+  cd tools/taiyi-reader-platform/web
+  npm ci && npm run build && npx cap sync
+  cd android && ./gradlew assembleDebug
+  产物：android/app/build/outputs/apk/debug/app-debug.apk
+  侧载安装即可（未上架、无应用备案流程；网站 ICP 与内容合规仍须自行遵守当地法规）

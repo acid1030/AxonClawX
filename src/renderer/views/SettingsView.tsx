@@ -85,7 +85,6 @@ const BIND_OPTIONS: { value: BindAddressState['mode']; labelKey: string }[] = [
 
 const LANGUAGE_OPTIONS: { value: string; labelKey: string; fallbackLabel: string }[] = [
   { value: 'zh', labelKey: 'settings.general.languageOptions.zh', fallbackLabel: 'Simplified Chinese' },
-  { value: 'zh-TW', labelKey: 'settings.general.languageOptions.zhTW', fallbackLabel: 'Traditional Chinese' },
   { value: 'en', labelKey: 'settings.general.languageOptions.en', fallbackLabel: 'English' },
   { value: 'ja', labelKey: 'settings.general.languageOptions.ja', fallbackLabel: 'Japanese' },
   { value: 'ko', labelKey: 'settings.general.languageOptions.ko', fallbackLabel: '한국어' },

@@ -1,0 +1,11 @@
+{
+  "name": "taiyi-novel-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "marked": "^15.0.0"
+  }
+}

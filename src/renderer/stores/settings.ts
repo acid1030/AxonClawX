@@ -30,7 +30,10 @@ function normalizeLanguageCode(input: string | undefined | null): string {
   if (!raw) return 'en';
   const lower = raw.toLowerCase();
   if (lower === 'cn' || lower === 'zh-cn') return 'zh';
-  if (lower === 'zh-tw' || lower.startsWith('zh-hant') || lower.startsWith('zh-hk')) return 'zh-TW';
+  // The main AxonClawX UI currently ships a complete Simplified Chinese
+  // resource set. Normalize old persisted Traditional Chinese values back to
+  // zh so the configuration center does not silently fall into zh-TW text.
+  if (lower === 'zh-tw' || lower.startsWith('zh-hant') || lower.startsWith('zh-hk')) return 'zh';
   if (lower.startsWith('zh')) return 'zh';
   if (lower.startsWith('ja')) return 'ja';
   if (lower.startsWith('ko')) return 'ko';

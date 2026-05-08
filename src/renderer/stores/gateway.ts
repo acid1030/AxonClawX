@@ -139,6 +139,12 @@ function handleGatewayNotification(notification: { method?: string; params?: Rec
 
     if (matchesCurrentSession || matchesActiveRun) {
       void state.loadHistory(true);
+    } else if (resolvedSessionKey != null) {
+      state.handleChatEvent({
+        state: 'final',
+        runId,
+        sessionKey: resolvedSessionKey,
+      });
     }
     if ((matchesCurrentSession || matchesActiveRun) && state.sending) {
       // 多轮对话中 Gateway 会在每个 agent step 发送 completed，
@@ -180,7 +186,11 @@ function handleGatewayChatMessage(data: unknown): void {
   });
 
   if (payload.state) {
-    useChatStore.getState().handleChatEvent(payload);
+    useChatStore.getState().handleChatEvent({
+      ...payload,
+      runId: chatData.runId ?? payload.runId,
+      sessionKey: chatData.sessionKey ?? payload.sessionKey,
+    });
     return;
   }
 
@@ -188,6 +198,7 @@ function handleGatewayChatMessage(data: unknown): void {
     state: 'final',
     message: payload,
     runId: chatData.runId ?? payload.runId,
+    sessionKey: chatData.sessionKey ?? payload.sessionKey,
   });
 }
 

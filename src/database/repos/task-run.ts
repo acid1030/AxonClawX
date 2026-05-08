@@ -16,6 +16,7 @@ export interface TaskRunRecordEntity {
   lastSignature?: string;
   agentId?: string;
   result?: string;
+  childRunIds?: string[];
 }
 
 interface TaskRunRow {
@@ -31,6 +32,7 @@ interface TaskRunRow {
   last_signature: string | null;
   agent_id: string | null;
   result: string | null;
+  child_run_ids_json?: string | null;
 }
 
 function parseEvents(raw: string): unknown[] {
@@ -38,6 +40,16 @@ function parseEvents(raw: string): unknown[] {
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseChildRunIds(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map((v) => String(v)).filter(Boolean) : [];
   } catch {
     return [];
   }
@@ -62,17 +74,28 @@ function mapRow(row: TaskRunRow): TaskRunRecordEntity {
     lastSignature: row.last_signature || undefined,
     agentId: row.agent_id || undefined,
     result: row.result || undefined,
+    childRunIds: parseChildRunIds(row.child_run_ids_json),
   };
+}
+
+function ensureChildRunIdsColumn(): void {
+  const database = getDb();
+  const columns = database.prepare(`PRAGMA table_info(task_runs)`).all() as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === 'child_run_ids_json')) {
+    database.prepare(`ALTER TABLE task_runs ADD COLUMN child_run_ids_json TEXT`).run();
+  }
 }
 
 export function upsertTaskRun(record: TaskRunRecordEntity): void {
   const database = getDb();
+  ensureChildRunIdsColumn();
   const eventsJson = JSON.stringify(Array.isArray(record.events) ? record.events : []);
+  const childRunIdsJson = JSON.stringify(Array.isArray(record.childRunIds) ? record.childRunIds : []);
   database.prepare(
     `INSERT INTO task_runs (
       local_id, source, session_key, run_id, task, status,
-      created_at, updated_at, events_json, last_signature, agent_id, result
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      created_at, updated_at, events_json, last_signature, agent_id, result, child_run_ids_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(local_id) DO UPDATE SET
       source = excluded.source,
       session_key = excluded.session_key,
@@ -84,7 +107,8 @@ export function upsertTaskRun(record: TaskRunRecordEntity): void {
       events_json = excluded.events_json,
       last_signature = excluded.last_signature,
       agent_id = excluded.agent_id,
-      result = excluded.result`
+      result = excluded.result,
+      child_run_ids_json = excluded.child_run_ids_json`
   ).run(
     record.localId,
     record.source,
@@ -98,20 +122,23 @@ export function upsertTaskRun(record: TaskRunRecordEntity): void {
     record.lastSignature ?? null,
     record.agentId ?? null,
     record.result ?? null,
+    childRunIdsJson,
   );
 }
 
-export function listTaskRuns(limit = 200): TaskRunRecordEntity[] {
+export function listTaskRuns(limit = 200, offset = 0): TaskRunRecordEntity[] {
   const database = getDb();
+  ensureChildRunIdsColumn();
   const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(1000, Math.floor(limit)) : 200;
+  const safeOffset = Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
   const rows = database
     .prepare(
-      `SELECT local_id, source, session_key, run_id, task, status, created_at, updated_at, events_json, last_signature, agent_id, result
+      `SELECT local_id, source, session_key, run_id, task, status, created_at, updated_at, events_json, last_signature, agent_id, result, child_run_ids_json
        FROM task_runs
        ORDER BY updated_at DESC
-       LIMIT ?`
+       LIMIT ? OFFSET ?`
     )
-    .all(safeLimit) as TaskRunRow[];
+    .all(safeLimit, safeOffset) as TaskRunRow[];
   return rows.map(mapRow);
 }
 

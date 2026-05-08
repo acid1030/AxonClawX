@@ -25,6 +25,7 @@ export interface TaskRunRecord {
   lastSignature?: string;
   agentId?: string;
   result?: string;
+  childRunIds?: string[];
 }
 
 interface RegisterRunInput {
@@ -38,9 +39,14 @@ interface TaskMonitorState {
   runs: TaskRunRecord[];
   hydrated: boolean;
   hydrating: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
+  nextOffset: number;
   ensureHydrated: () => Promise<void>;
+  loadMore: () => Promise<void>;
   registerRun: (input: RegisterRunInput) => string;
   bindRunId: (localId: string, runId: string) => void;
+  attachChildRun: (localId: string, childRunId: string, detail?: string) => void;
   appendRunEvent: (localId: string, event: { type: TaskEventType; title: string; detail?: string }) => void;
   markRunCompleted: (localId: string, detail?: string) => void;
   markRunFailed: (localId: string, error: string) => void;
@@ -49,7 +55,8 @@ interface TaskMonitorState {
   removeRun: (localId: string) => void;
 }
 
-const MAX_RUNS = 24;
+const INITIAL_PAGE_SIZE = 30;
+const PAGE_SIZE = 30;
 const MAX_EVENTS_PER_RUN = 100;
 
 function makeId(prefix: string): string {
@@ -106,6 +113,7 @@ function normalizeRun(raw: unknown): TaskRunRecord | null {
     lastSignature: typeof r.lastSignature === 'string' ? r.lastSignature : undefined,
     agentId: typeof r.agentId === 'string' ? r.agentId : undefined,
     result: typeof r.result === 'string' ? r.result : undefined,
+    childRunIds: Array.isArray(r.childRunIds) ? r.childRunIds.map((v) => String(v)).filter(Boolean) : [],
   };
 }
 
@@ -229,9 +237,8 @@ function appendEvent(run: TaskRunRecord, event: Omit<TaskTimelineEvent, 'id' | '
   };
 }
 
-function withRunsLimit(runs: TaskRunRecord[]): TaskRunRecord[] {
-  if (runs.length <= MAX_RUNS) return runs;
-  return runs.slice(runs.length - MAX_RUNS);
+function sortRunsNewestFirst(runs: TaskRunRecord[]): TaskRunRecord[] {
+  return [...runs].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 async function persistRun(run: TaskRunRecord): Promise<void> {
@@ -262,13 +269,17 @@ async function clearFinishedFromDb(): Promise<void> {
   }
 }
 
-async function loadRunsFromDb(limit = 200): Promise<TaskRunRecord[]> {
+async function loadRunsFromDb(limit = INITIAL_PAGE_SIZE, offset = 0): Promise<{ runs: TaskRunRecord[]; hasMore: boolean; nextOffset: number }> {
   try {
-    const res = await hostApiFetch<{ runs?: unknown[] }>(`/api/task-runs?limit=${limit}`);
+    const res = await hostApiFetch<{ runs?: unknown[]; hasMore?: boolean; nextOffset?: number }>(`/api/task-runs?limit=${limit}&offset=${offset}`);
     const list = Array.isArray(res?.runs) ? res.runs.map(normalizeRun).filter(Boolean) as TaskRunRecord[] : [];
-    return list.sort((a, b) => a.updatedAt - b.updatedAt);
+    return {
+      runs: sortRunsNewestFirst(list),
+      hasMore: Boolean(res?.hasMore),
+      nextOffset: Number(res?.nextOffset ?? offset + list.length),
+    };
   } catch {
-    return [];
+    return { runs: [], hasMore: false, nextOffset: offset };
   }
 }
 
@@ -276,20 +287,44 @@ export const useTaskMonitorStore = create<TaskMonitorState>((set, get) => ({
   runs: [],
   hydrated: false,
   hydrating: false,
+  loadingMore: false,
+  hasMore: true,
+  nextOffset: 0,
 
   ensureHydrated: async () => {
     if (get().hydrated || get().hydrating) return;
     set({ hydrating: true });
-    const dbRuns = await loadRunsFromDb(200);
+    const page = await loadRunsFromDb(INITIAL_PAGE_SIZE, 0);
     set((state) => {
       const merged = new Map<string, TaskRunRecord>();
-      for (const run of dbRuns) merged.set(run.localId, run);
+      for (const run of page.runs) merged.set(run.localId, run);
       for (const run of state.runs) {
         const current = merged.get(run.localId);
         if (!current || run.updatedAt >= current.updatedAt) merged.set(run.localId, run);
       }
-      const finalRuns = [...merged.values()].sort((a, b) => a.updatedAt - b.updatedAt);
-      return { runs: withRunsLimit(finalRuns), hydrated: true, hydrating: false };
+      const finalRuns = sortRunsNewestFirst([...merged.values()]);
+      return { runs: finalRuns, hydrated: true, hydrating: false, hasMore: page.hasMore, nextOffset: page.nextOffset };
+    });
+  },
+
+  loadMore: async () => {
+    const state = get();
+    if (state.loadingMore || !state.hasMore) return;
+    set({ loadingMore: true });
+    const page = await loadRunsFromDb(PAGE_SIZE, state.nextOffset);
+    set((currentState) => {
+      const merged = new Map<string, TaskRunRecord>();
+      for (const run of currentState.runs) merged.set(run.localId, run);
+      for (const run of page.runs) {
+        const existing = merged.get(run.localId);
+        if (!existing || run.updatedAt >= existing.updatedAt) merged.set(run.localId, run);
+      }
+      return {
+        runs: sortRunsNewestFirst([...merged.values()]),
+        loadingMore: false,
+        hasMore: page.hasMore,
+        nextOffset: page.nextOffset,
+      };
     });
   },
 
@@ -320,7 +355,7 @@ export const useTaskMonitorStore = create<TaskMonitorState>((set, get) => ({
         },
       ],
     };
-    set((state) => ({ runs: withRunsLimit([...state.runs, record]) }));
+    set((state) => ({ runs: sortRunsNewestFirst([...state.runs, record]) }));
     void persistRun(record);
     return localId;
   },
@@ -337,6 +372,26 @@ export const useTaskMonitorStore = create<TaskMonitorState>((set, get) => ({
           next,
           { type: 'started', title: 'Run started', detail: normalized },
           `started:${normalized}`,
+        );
+        return updated;
+      }),
+    }));
+    if (updated) void persistRun(updated);
+  },
+
+  attachChildRun: (localId, childRunId, detail) => {
+    const normalized = String(childRunId || '').trim();
+    if (!normalized) return;
+    let updated: TaskRunRecord | null = null;
+    set((state) => ({
+      runs: state.runs.map((run) => {
+        if (run.localId !== localId) return run;
+        const childRunIds = Array.from(new Set([...(run.childRunIds || []), normalized]));
+        const next = { ...run, childRunIds, status: run.status === 'pending' ? 'running' as TaskRunStatus : run.status };
+        updated = appendEvent(
+          next,
+          { type: 'started', title: 'Subtask started', detail: detail || normalized },
+          `child-started:${normalized}`,
         );
         return updated;
       }),
@@ -399,7 +454,9 @@ export const useTaskMonitorStore = create<TaskMonitorState>((set, get) => ({
     set((state) => {
       const runs = [...state.runs];
       let idx = -1;
-      if (event.runId) idx = runs.findIndex((run) => run.runId === event.runId);
+      if (event.runId) {
+        idx = runs.findIndex((run) => run.runId === event.runId || (run.childRunIds || []).includes(event.runId));
+      }
 
       if (idx < 0 && event.sessionKey) {
         for (let i = runs.length - 1; i >= 0; i -= 1) {
@@ -436,6 +493,7 @@ export const useTaskMonitorStore = create<TaskMonitorState>((set, get) => ({
       }
 
       const run = runs[idx];
+      const isChildEvent = Boolean(event.runId && run.runId !== event.runId && (run.childRunIds || []).includes(event.runId));
       let next: TaskRunRecord = {
         ...run,
         runId: run.runId || event.runId || null,
@@ -455,7 +513,7 @@ export const useTaskMonitorStore = create<TaskMonitorState>((set, get) => ({
         next.status = 'running';
         next = appendEvent(
           next,
-          { type: 'started', title: 'Run started', detail: event.runId || event.sessionKey || '' },
+          { type: 'started', title: isChildEvent ? 'Subtask started' : 'Run started', detail: event.runId || event.sessionKey || '' },
           `started:${event.runId || event.sessionKey || ''}`,
         );
       }
@@ -463,7 +521,11 @@ export const useTaskMonitorStore = create<TaskMonitorState>((set, get) => ({
       const toolEvents = extractToolEvents(event.message);
       for (const tool of toolEvents) {
         next.status = 'running';
-        next = appendEvent(next, { type: 'tool', title: tool.title, detail: tool.detail }, `tool:${tool.signature}`);
+        next = appendEvent(
+          next,
+          { type: 'tool', title: isChildEvent ? `Subtask · ${tool.title}` : tool.title, detail: tool.detail },
+          `tool:${event.runId || ''}:${tool.signature}`,
+        );
       }
 
       const fullText = extractFullText(event.message);
@@ -472,24 +534,32 @@ export const useTaskMonitorStore = create<TaskMonitorState>((set, get) => ({
       if (preview && !toolEvents.length && !isFinal && !isError) {
         next.status = 'running';
         if (fullText) next.result = fullText;
-        next = appendEvent(next, { type: 'message', title: 'Model output', detail: preview }, `msg:${clip(preview, 120)}`);
+        next = appendEvent(
+          next,
+          { type: 'message', title: isChildEvent ? 'Subtask output' : 'Model output', detail: preview },
+          `msg:${event.runId || ''}:${clip(preview, 120)}`,
+        );
       }
 
       if (isError) {
         next.status = 'failed';
         const errorDetail = event.errorMessage || fullText || 'Run aborted';
         next.result = errorDetail;
-        next = appendEvent(next, { type: 'failed', title: 'Run failed', detail: errorDetail }, `failed:${clip(errorDetail, 120)}`);
+        next = appendEvent(next, { type: 'failed', title: isChildEvent ? 'Subtask failed' : 'Run failed', detail: errorDetail }, `failed:${event.runId || ''}:${clip(errorDetail, 120)}`);
       } else if (isFinal) {
-        next.status = 'completed';
+        next.status = isChildEvent ? next.status : 'completed';
         const completionDetail = fullText || preview || event.runId || event.sessionKey || '';
         next.result = fullText || next.result || '';
-        next = appendEvent(next, { type: 'completed', title: 'Run completed', detail: completionDetail }, `completed:${clip(completionDetail, 120)}`);
+        next = appendEvent(
+          next,
+          { type: 'completed', title: isChildEvent ? 'Subtask completed' : 'Run completed', detail: completionDetail },
+          `completed:${event.runId || ''}:${clip(completionDetail, 120)}`,
+        );
       }
 
       runs[idx] = next;
       updated = next;
-      return { runs: withRunsLimit(runs) };
+      return { runs: sortRunsNewestFirst(runs) };
     });
     if (updated) void persistRun(updated);
   },

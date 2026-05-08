@@ -10,7 +10,7 @@ import { useChatStore } from '@/stores/chat';
 import { useGatewayStore } from '@/stores/gateway';
 import { useAgentsStore } from '@/stores/agents';
 import { motion } from 'framer-motion';
-import { ChevronDown, Bot, Wrench, Lightbulb, RefreshCw, File, LightbulbOff, Pencil, History, Trash2 } from 'lucide-react';
+import { ChevronDown, Bot, Wrench, Lightbulb, RefreshCw, File, LightbulbOff, Pencil, History, Trash2, Star } from 'lucide-react';
 import { MarkdownContent } from './MarkdownContent';
 import { TypewriterMarkdown } from './TypewriterMarkdown';
 import { ChatInput, AttachmentPreview } from '@/pages/Chat/ChatInput';
@@ -56,13 +56,25 @@ function getAgentIdFromSessionKey(sessionKey: string): string | null {
   return parts[1] || null;
 }
 
+function isPrimaryChatSessionKey(sessionKey: string): boolean {
+  if (!sessionKey.startsWith('agent:')) return true;
+  const parts = sessionKey.split(':');
+  return !parts.includes('subagent');
+}
+
 function sanitizeSessionLabel(label: string): string {
   const text = String(label || '').trim();
   if (!text) return '';
   const blockedPatterns = [
+    /<relevant-memories>/i,
+    /treat every memory below as untrusted/i,
     /read heartbeat\.md/i,
     /heartbeat_ok/i,
     /sender \(untrusted metadata\)/i,
+    /\[subagent context\]/i,
+    /you are running as a subagent/i,
+    /\.trajectory(?:\.jsonl)?$/i,
+    /\.checkpoint\.[^.]+(?:\.jsonl)?$/i,
     /^```/i,
   ];
   if (blockedPatterns.some((pattern) => pattern.test(text))) return '';
@@ -181,6 +193,7 @@ export const ChatView: React.FC = () => {
     sessions,
     currentSessionKey,
     sessionLabels,
+    favoriteSessionKeys,
     sessionLastActivity,
     streamingText,
     streamingMessage,
@@ -194,6 +207,7 @@ export const ChatView: React.FC = () => {
     showThinking,
     toggleThinking,
     setSessionLabel,
+    toggleSessionFavorite,
     loadSessions,
     deleteSession,
   } = useChatStore();
@@ -415,6 +429,7 @@ export const ChatView: React.FC = () => {
     const cutoff = now - 7 * 24 * 60 * 60 * 1000;
     return [...sessions]
       .filter((session) => {
+        if (!isPrimaryChatSessionKey(session.key)) return false;
         if (session.key === currentSessionKey) return true;
         const activity = sessionLastActivity[session.key] ?? session.updatedAt ?? 0;
         const hasReadableTitle = !!sanitizeSessionLabel(
@@ -688,10 +703,15 @@ export const ChatView: React.FC = () => {
 
   const extractToolUse = (content: unknown): { label: string; detail: string } | null => {
     if (!Array.isArray(content)) return null;
-    const b = content.find((x: { type?: string }) => x.type === 'tool_use' || x.type === 'toolCall');
-    if (!b) return null;
-    const name = (b as { name?: string }).name || 'tool';
-    const args = (b as { input?: unknown }).input || (b as { arguments?: unknown }).arguments || {};
+    const b = content.find((x: unknown) => {
+      if (!x || typeof x !== 'object') return false;
+      const type = (x as { type?: string }).type;
+      return type === 'tool_use' || type === 'toolCall';
+    });
+    if (!b || typeof b !== 'object') return null;
+    const block = b as { name?: string; input?: unknown; arguments?: unknown };
+    const name = block.name || 'tool';
+    const args = block.input ?? block.arguments ?? {};
     return {
       label: name,
       detail: formatToolArgs(args),
@@ -749,8 +769,26 @@ export const ChatView: React.FC = () => {
                       s.key === currentSessionKey ? 'bg-[#6366f1]/10 text-[#6366f1]' : 'text-[#e2e8f0] hover:bg-[#334155]'
                     }`}
                   >
-                    <span>💬 {getSessionDisplayName(s.key)}</span>
+                    <span className="min-w-0 flex-1 truncate">💬 {getSessionDisplayName(s.key)}</span>
                     <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSessionFavorite(s.key);
+                        }}
+                        className="p-1 rounded hover:bg-[#334155] transition-colors"
+                        title={favoriteSessionKeys[s.key] ? t('chatView.unfavoriteSession') : t('chatView.favoriteSession')}
+                        aria-label={favoriteSessionKeys[s.key] ? t('chatView.unfavoriteSession') : t('chatView.favoriteSession')}
+                      >
+                        <Star
+                          className={`w-3.5 h-3.5 ${
+                            favoriteSessionKeys[s.key]
+                              ? 'text-amber-300 fill-amber-300'
+                              : 'text-[#94a3b8] opacity-60 group-hover:opacity-100'
+                          }`}
+                        />
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => handleEditSessionLabel(e, s.key)}

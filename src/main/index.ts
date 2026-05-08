@@ -302,6 +302,48 @@ function normalizeModelCommandMessage(rawMessage: string): string {
   return `/model ${normalizedModel}`;
 }
 
+function isDeepSeekV4ModelRef(model?: unknown, provider?: unknown): boolean {
+  const modelValue = String(model || '').trim().toLowerCase();
+  const providerValue = String(provider || '').trim().toLowerCase();
+  if (!modelValue) return false;
+  if (modelValue === 'deepseek/deepseek-v4-pro' || modelValue === 'deepseek/deepseek-v4-flash') return true;
+  if (providerValue === 'deepseek' && (modelValue === 'deepseek-v4-pro' || modelValue === 'deepseek-v4-flash')) return true;
+  return modelValue === 'deepseek-v4-pro' || modelValue === 'deepseek-v4-flash';
+}
+
+function readGatewaySessionModelInfo(value: unknown): { model: string; provider: string; thinkingLevel: string } {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    model: String(record.model || record.modelOverride || '').trim(),
+    provider: String(record.modelProvider || record.providerOverride || '').trim(),
+    thinkingLevel: String(record.thinkingLevel || '').trim(),
+  };
+}
+
+async function ensureDeepSeekV4ThinkingOffForChatSend(params: unknown): Promise<void> {
+  const payload = params && typeof params === 'object' ? params as Record<string, unknown> : {};
+  const sessionKey = String(payload.sessionKey || '').trim();
+  const message = String(payload.message || '').trim();
+  if (!sessionKey || message.startsWith('/')) return;
+
+  try {
+    // Do not call sessions.list here: under session-file lock contention it can
+    // take minutes and block every chat.send. Renderer paths already know the
+    // active session model and patch DeepSeek V4 before sending.
+    const current = readGatewaySessionModelInfo(payload);
+    const model = current.model;
+    const provider = current.provider;
+    const thinkingLevel = current.thinkingLevel;
+    if (!model && !provider) return;
+    if (!isDeepSeekV4ModelRef(model, provider) || thinkingLevel === 'off') return;
+
+    console.log(`[GatewayRPC] DeepSeek V4 detected for ${sessionKey}; forcing thinkingLevel=off before chat.send`);
+    await callGatewayRpcWithRetry('sessions.patch', { key: sessionKey, thinkingLevel: 'off' }, 15_000);
+  } catch (err) {
+    console.warn('[GatewayRPC] DeepSeek V4 thinking preflight failed; continuing chat.send:', err);
+  }
+}
+
 function allocEphemeralCodexAuthPartition(): string {
   return `codex-auth-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -1789,6 +1831,7 @@ ipcMain.handle('gateway:rpc', async (_event, methodOrPayload: unknown, paramsOrU
       normalized.message = normalizedMessage;
     }
     params = normalized;
+    await ensureDeepSeekV4ThinkingOffForChatSend(params);
   }
 
   console.log(`[GatewayRPC] ${method}`, params);
@@ -2128,6 +2171,8 @@ ipcMain.handle('chat:sendWithMedia', async (_event, payload: {
     if (mediaContent.length > 0) {
       rpcParams.media = mediaContent;
     }
+
+    await ensureDeepSeekV4ThinkingOffForChatSend(rpcParams);
 
     // Reuse the gateway:rpc IPC handler via direct call
     const { callGatewayRpcWithRetry } = require('../gateway/rpc');
@@ -2874,6 +2919,68 @@ type LocalSessionSummary = {
   model?: string;
 };
 
+function isAuxiliarySessionFileName(name: string): boolean {
+  return (
+    !name.endsWith('.jsonl') ||
+    name.endsWith('.deleted.jsonl') ||
+    name.endsWith('.trajectory.jsonl') ||
+    /\.checkpoint\.[^.]+\.jsonl$/i.test(name)
+  );
+}
+
+function isSubagentSessionKey(sessionKey: unknown): boolean {
+  const key = String(sessionKey || '').trim().toLowerCase();
+  if (!key) return false;
+  return key.split(':').includes('subagent');
+}
+
+function readTrajectorySessionKey(sessionFile: string): string | null {
+  const trajectoryFile = sessionFile.replace(/\.jsonl$/i, '.trajectory.jsonl');
+  if (!fs.existsSync(trajectoryFile)) return null;
+  try {
+    const firstLine = fs.readFileSync(trajectoryFile, 'utf8').split(/\r?\n/).find(Boolean);
+    if (!firstLine) return null;
+    const first = JSON.parse(firstLine) as Record<string, unknown>;
+    const sessionKey = typeof first.sessionKey === 'string' ? first.sessionKey.trim() : '';
+    return sessionKey || null;
+  } catch {
+    return null;
+  }
+}
+
+function isSubagentBootstrapText(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return (
+    normalized.includes('<relevant-memories>') ||
+    normalized.includes('treat every memory below as untrusted') ||
+    normalized.includes('[subagent context]') ||
+    normalized.includes('you are running as a subagent') ||
+    normalized.includes('your assigned task is in the system prompt') ||
+    normalized.includes('read heartbeat.md') ||
+    normalized.includes('heartbeat_ok') ||
+    normalized.includes('sender (untrusted metadata)') ||
+    /\.trajectory(?:\.jsonl)?$/i.test(text.trim()) ||
+    /\.checkpoint\.[^.]+(?:\.jsonl)?$/i.test(text.trim())
+  );
+}
+
+function sanitizeLocalSessionTitle(text: string): string {
+  const title = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!title || isSubagentBootstrapText(title)) return '';
+  return title.slice(0, 80);
+}
+
+function isPrimarySessionRecord(s: Record<string, unknown>): boolean {
+  const key = String(s?.key || s?.sessionKey || '').trim();
+  if (!key) return false;
+  if (isSubagentSessionKey(key)) return false;
+  const spawnedBy = String(s?.spawnedBy || s?.parentSessionKey || s?.parentRunId || s?.parentId || '').trim();
+  if (spawnedBy) return false;
+  const kind = String(s?.kind || s?.type || '').trim().toLowerCase();
+  if (kind === 'subagent' || kind === 'child' || kind === 'spawned') return false;
+  return true;
+}
+
 function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
   const roots = [
     path.join(os.homedir(), '.openclaw', 'agents'),
@@ -2902,16 +3009,18 @@ function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
       let files: string[] = [];
       try {
         files = fs.readdirSync(dir)
-          .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.deleted.jsonl'));
+          .filter((name) => !isAuxiliarySessionFileName(name));
       } catch {
         continue;
       }
 
       for (const name of files) {
         const id = name.replace(/\.jsonl$/i, '');
-        const sessionKey = `agent:${agentId}:${id}`;
         const full = path.join(dir, name);
         try {
+          const trajectorySessionKey = readTrajectorySessionKey(full);
+          if (isSubagentSessionKey(trajectorySessionKey)) continue;
+          const sessionKey = trajectorySessionKey || `agent:${agentId}:${id}`;
           const raw = fs.readFileSync(full, 'utf8');
           const lines = raw.split(/\r?\n/).filter(Boolean);
           if (lines.length === 0) continue;
@@ -2940,10 +3049,13 @@ function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
                 ? (obj.message as Record<string, unknown>)
                 : null;
               if (msg && msg.role === 'user') {
-                firstUserText = extractTextFromContent(msg.content).slice(0, 80);
+                const candidate = sanitizeLocalSessionTitle(extractTextFromContent(msg.content));
+                if (candidate) firstUserText = candidate;
               }
             }
           }
+
+          if (!firstUserText) continue;
 
           if (!updatedAt) {
             const st = fs.statSync(full);
@@ -2952,8 +3064,8 @@ function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
 
           sessions.push({
             key: sessionKey,
-            displayName: firstUserText || id,
-            label: firstUserText || undefined,
+            displayName: firstUserText,
+            label: firstUserText,
             updatedAt,
             model: modelText || undefined,
           });
@@ -3021,6 +3133,7 @@ function mergeSessionsWithLocalFallback(
   for (const s of gatewaySessions) {
     const key = String(s?.key || '').trim();
     if (!key) continue;
+    if (!isPrimarySessionRecord(s)) continue;
     merged.set(key, s);
   }
 
@@ -7811,13 +7924,15 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
         ensureDatabaseReady();
         const url = new URL(path, 'http://localhost');
         const limit = parseInt(url.searchParams.get('limit') || '200', 10) || 200;
-        const list = listTaskRuns(limit);
+        const offset = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
+        const list = listTaskRuns(limit, offset);
+        const hasMore = list.length >= Math.max(1, Math.min(1000, limit));
         return {
           ok: true,
-          data: { status: 200, json: { runs: list }, ok: true },
+          data: { status: 200, json: { runs: list, offset, limit, hasMore, nextOffset: offset + list.length }, ok: true },
           success: true,
           status: 200,
-          json: { runs: list },
+          json: { runs: list, offset, limit, hasMore, nextOffset: offset + list.length },
         };
       } catch (err) {
         return {
@@ -7847,6 +7962,7 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
           lastSignature?: string;
           agentId?: string;
           result?: string;
+          childRunIds?: string[];
         };
         if (!record?.localId || !record?.status) {
           return {
@@ -7870,6 +7986,7 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
           lastSignature: typeof record.lastSignature === 'string' ? record.lastSignature : undefined,
           agentId: typeof record.agentId === 'string' ? record.agentId : undefined,
           result: typeof record.result === 'string' ? record.result : undefined,
+          childRunIds: Array.isArray(record.childRunIds) ? record.childRunIds.map((v) => String(v)).filter(Boolean) : undefined,
         });
         return {
           ok: true,

@@ -4,7 +4,7 @@
  * 不改变技术架构，使用现有 stores + hostApiFetch + IPC
  */
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   MessageSquare,
@@ -26,6 +26,7 @@ import {
   Shield,
   ShieldCheck,
   ChevronRight,
+  Star,
 } from 'lucide-react';
 import { useGatewayStore } from '@/stores/gateway';
 import { useChatStore } from '@/stores/chat';
@@ -131,6 +132,19 @@ interface DashboardViewProps {
 
 const FAST_INTERVAL = 25000;
 
+function sanitizeDashboardSessionTitle(value: string): string {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  const blockedPatterns = [
+    /<relevant-memories>/i,
+    /read heartbeat\.md/i,
+    /heartbeat_ok/i,
+    /sender \(untrusted metadata\)/i,
+    /\.trajectory(?:\.jsonl)?$/i,
+  ];
+  return blockedPatterns.some((pattern) => pattern.test(text)) ? '' : text;
+}
+
 const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateTo }) => {
   const { t } = useTranslation();
   const gatewayStatus = useGatewayStore((s) => s.status);
@@ -199,6 +213,10 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateTo }) => {
   const isStarting = gatewayStatus?.state === 'starting' || starting;
 
   const loadSessions = useChatStore((s) => s.loadSessions);
+  const chatSessions = useChatStore((s) => s.sessions);
+  const sessionLabels = useChatStore((s) => s.sessionLabels);
+  const favoriteSessionKeys = useChatStore((s) => s.favoriteSessionKeys);
+  const switchChatSession = useChatStore((s) => s.switchSession);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -482,6 +500,42 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateTo }) => {
   const skillCount = Array.isArray(skills) ? skills.length : 0;
 
   const timeFormatter = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+  const sessionInfoByKey = useMemo(() => {
+    const map = new Map<string, SessionInfo>();
+    for (const session of sessions) {
+      if (session.sessionKey) map.set(session.sessionKey, session);
+    }
+    return map;
+  }, [sessions]);
+
+  const favoriteSessions = useMemo(() => (
+    Object.keys(favoriteSessionKeys || {})
+      .filter((key) => favoriteSessionKeys[key])
+      .map((key) => {
+        const info = sessionInfoByKey.get(key);
+        const storeSession = chatSessions.find((session) => session.key === key);
+        const label =
+          sanitizeDashboardSessionTitle(sessionLabels[key] || '') ||
+          sanitizeDashboardSessionTitle(info?.label || '') ||
+          sanitizeDashboardSessionTitle(storeSession?.displayName || '') ||
+          sanitizeDashboardSessionTitle(storeSession?.label || '') ||
+          key;
+        return {
+          sessionKey: key,
+          label,
+          lastActivity: info?.lastActivity ?? storeSession?.updatedAt ?? 0,
+        };
+      })
+      .sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0))
+  ), [chatSessions, favoriteSessionKeys, sessionInfoByKey, sessionLabels]);
+
+  const openSession = useCallback((sessionKey: string) => {
+    if (sessionKey) {
+      switchChatSession(sessionKey);
+    }
+    onNavigateTo?.('run');
+  }, [onNavigateTo, switchChatSession]);
 
   // 资源告警：CPU/内存/磁盘 > 90%
   const cpuPct = hostInfo?.cpuUsage ?? 0;
@@ -1149,6 +1203,52 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateTo }) => {
             </h3>
           </div>
 
+          {/* 收藏会话 */}
+          <div className="rounded-xl border-2 border-amber-500/40 bg-[#1e293b] p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                {t('dashboard.favoriteSessions')}
+              </h3>
+              {favoriteSessions.length > 0 && (
+                <button
+                  onClick={() => onNavigateTo?.('run')}
+                  className="text-xs text-primary font-bold hover:underline"
+                >
+                  {t('dashboard.viewAll')}
+                </button>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {favoriteSessions.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                  <Star className="w-8 h-8 mb-2 opacity-40" />
+                  <span className="text-xs">{t('dashboard.noFavoriteSessions')}</span>
+                </div>
+              ) : (
+                favoriteSessions.slice(0, 5).map((session) => (
+                  <button
+                    key={session.sessionKey}
+                    onClick={() => openSession(session.sessionKey)}
+                    className="w-full flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-start cursor-pointer group"
+                  >
+                    <div className="w-6 h-6 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                      <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                    </div>
+                    <span className="text-xs font-medium text-foreground truncate flex-1">
+                      {session.label}
+                    </span>
+                    {(session.lastActivity || 0) > 0 && (
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {timeFormatter.format(new Date(session.lastActivity!))}
+                      </span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
           {/* 最近会话 */}
           <div className="rounded-xl border-2 border-indigo-500/40 bg-[#1e293b] p-4">
             <div className="flex items-center justify-between mb-3">
@@ -1175,7 +1275,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateTo }) => {
                 sessions.slice(0, 6).map((session, i) => (
                   <button
                     key={session.sessionKey || i}
-                    onClick={() => onNavigateTo?.('run')}
+                    onClick={() => openSession(session.sessionKey)}
                     className="w-full flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-start cursor-pointer group"
                   >
                     <div className="w-6 h-6 rounded-lg bg-indigo-500/10 flex items-center justify-center text-xs font-bold text-indigo-500">

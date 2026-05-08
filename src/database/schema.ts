@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS task_runs (
   events_json TEXT NOT NULL,
   last_signature TEXT,
   agent_id TEXT,
-  result TEXT
+  result TEXT,
+  child_run_ids_json TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_task_runs_local_id ON task_runs(local_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_updated_at ON task_runs(updated_at);

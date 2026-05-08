@@ -194,6 +194,7 @@ const BUILTIN_TEMPLATES_FALLBACK: BuiltinAgentTemplate[] = [
 ];
 
 const TEMPLATE_FILES = ['IDENTITY.md', 'SOUL.md', 'USER.md', 'HEARTBEAT.md', 'AGENTS.md', 'TOOLS.md', 'BOOTSTRAP.md'] as const;
+const AGENT_LIBRARY_WORKSPACE_ROOT = '~/.openclaw/agent-library';
 
 interface AgentLibraryViewProps {
   onNavigateTo?: (view: string) => void;
@@ -227,6 +228,21 @@ function resolveCategory(name: string, tag: string, id: string): AgentCategory {
   if (text.includes('devops') || text.includes('sre') || text.includes('运维')) return 'devops';
   if (text.includes('安全') || text.includes('审计') || text.includes('security')) return 'security';
   return 'general';
+}
+
+function buildAgentWorkspace(templateId: string): string {
+  const safeId = String(templateId || 'agent')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'agent';
+  return `${AGENT_LIBRARY_WORKSPACE_ROOT}/${safeId}`;
+}
+
+function getAgentIdFromCreateResult(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null;
+  const obj = result as Record<string, unknown>;
+  return typeof obj.agentId === 'string' && obj.agentId.trim() ? obj.agentId.trim() : null;
 }
 
 function resolveCategoryColor(category: AgentCategory): {
@@ -333,10 +349,11 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
       }
     };
     void loadCatalog();
+    void fetchAgents();
     return () => {
       stopped = true;
     };
-  }, []);
+  }, [fetchAgents]);
 
   const templates = useMemo<TemplateViewModel[]>(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -397,24 +414,57 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
   const installTemplate = async (template: TemplateViewModel) => {
     setInstallingId(template.id);
     try {
-      const beforeIds = new Set(useAgentsStore.getState().agents.map((a) => a.id));
-      await agentsCreate({ name: template.displayName });
+      await fetchAgents();
+      const beforeAgents = useAgentsStore.getState().agents;
+      const existingAgent = beforeAgents.find((agent) => {
+        const label = resolveLabel(agent);
+        return agent.id === template.id
+          || agent.id.includes(template.id)
+          || label === template.displayName
+          || label === template.name;
+      });
+      let createResult: unknown = null;
+      if (!existingAgent) {
+        try {
+          createResult = await agentsCreate({
+            // OpenClaw derives agentId from name. Use the stable ASCII template id
+            // here, then overwrite IDENTITY.md with the localized display name.
+            name: template.id,
+            workspace: buildAgentWorkspace(template.id),
+            emoji: '🤖',
+          });
+        } catch (error) {
+          const text = String(error);
+          if (!text.includes('already exists')) {
+            throw error;
+          }
+        }
+      }
       await fetchAgents();
 
       const latestAgents = useAgentsStore.getState().agents;
       const created =
-        latestAgents.find((a) => !beforeIds.has(a.id)) ||
+        existingAgent ||
+        (getAgentIdFromCreateResult(createResult)
+          ? latestAgents.find((a) => a.id === getAgentIdFromCreateResult(createResult))
+          : null) ||
+        latestAgents.find((a) => a.id === template.id || a.id.includes(template.id)) ||
         latestAgents.find((a) => resolveLabel(a) === template.displayName || resolveLabel(a) === template.name) ||
         null;
       if (!created) {
         throw new Error('Agent created but unable to resolve agent id');
       }
 
+      let writtenCount = 0;
       for (const fileName of TEMPLATE_FILES) {
         const resp = await fetch(`${template.sourcePath}/${fileName}`);
         if (!resp.ok) continue;
         const content = await resp.text();
         await agentFileSet(created.id, fileName, content);
+        writtenCount += 1;
+      }
+      if (writtenCount === 0) {
+        throw new Error(`Template files not found: ${template.sourcePath}`);
       }
 
       toast.success(

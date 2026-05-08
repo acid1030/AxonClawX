@@ -598,6 +598,11 @@ export const IntelligenceManagementView: React.FC = () => {
       });
       const stepRunId = String(res?.runId || res?.id || res?.result?.runId || res?.result?.id || '').trim();
       if (stepRunId) {
+        monitor.attachChildRun(
+          monitorRunId,
+          stepRunId,
+          `${member?.name || step.agent} · ${step.action}`,
+        );
         monitor.appendRunEvent(monitorRunId, {
           type: 'message',
           title: t('agentHub.workflow.runTimelineRunAccepted'),

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">太一卷二</string>
+    <string name="title_activity_main">太一卷二</string>
+    <string name="package_name">com.axonclawx.taiyireader</string>
+    <string name="custom_url_scheme">com.axonclawx.taiyireader</string>
+</resources>

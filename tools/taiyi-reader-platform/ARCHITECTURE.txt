@@ -1,0 +1,32 @@
+太一阅读平台 — 认证与部署架构（简版）
+
+一、组件
+  1) Web / Android 壳（Capacitor WebView）
+     - 单页应用（React + HashRouter），移动端排版。
+     - 生产环境 API 基址：VITE_API_BASE（.env.production 默认 https://axonclawx.cn/taiyi-api）。
+     - 令牌：Access JWT 存内存；Refresh JWT 存 localStorage（浏览器）或 @capacitor/preferences（原生）。
+     - 客户端在 Access 将过期时用 Refresh 调用 POST /auth/refresh，服务端轮换 refresh jti（旧令牌作废）。
+
+  2) Node API（Express）
+     - 端口默认 3450，仅建议绑定 127.0.0.1，由 nginx 反代对外。
+     - 数据：SQLite（sql.js 文件库 server/data/taiyi.db），无原生编译依赖。
+     - 用户表 users；刷新会话表 refresh_tokens（jti、过期、吊销）。
+     - 章节：读取 TAIYI_CONTENT_DIR 下 .md，排序后按 slug 提供 JSON（含 HTML 正文）。
+
+二、认证流程
+  - 注册：POST /auth/register（需 ALLOW_REGISTER=1 或正确 INVITE_CODE）。
+  - 登录：POST /auth/login → accessToken + refreshToken。
+  - 业务：GET /chapters、GET /chapters/:slug 需 Header Authorization: Bearer <access>。
+  - 刷新：POST /auth/refresh，Body { refreshToken }，返回新对；旧 refresh 对应行 revoked。
+  - 登出：POST /auth/logout，吊销当前 refresh（若提供）。
+
+三、JWT
+  - 算法 HS256，密钥 JWT_SECRET（≥32 字符）。
+  - Access 载荷：typ=access, username；Refresh：typ=refresh, jti。
+
+四、Android
+  - 包名 com.axonclawx.taiyireader；调试 APK：web/android/app/build/outputs/apk/debug/app-debug.apk。
+  - 构建需 JDK 17+ 与 Android SDK；见 DEPLOY.txt。
+
+五、合规说明
+  - 「不上架、不办应用备案」仅指不通过应用商店、不做部分监管流程；网站与内容在中国大陆仍须遵守 ICP、内容审核等法规，请自行评估。

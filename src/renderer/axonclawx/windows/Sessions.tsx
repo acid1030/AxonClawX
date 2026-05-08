@@ -9,6 +9,7 @@ import { useConfirm } from '../components/ConfirmDialog';
 import EmptyState from '../components/EmptyState';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatDeepSeekReasoningReplayError, isDeepSeekReasoningReplayError } from '../../lib/deepseek-reasoning-error';
+import { shouldForceDeepSeekV4ThinkingOff } from '../../lib/deepseek-v4-thinking';
 
 interface SessionsProps {
   language: Language;
@@ -43,6 +44,29 @@ interface ChatMsg {
 }
 
 type ChatRunPhase = 'idle' | 'sending' | 'streaming' | 'error';
+
+function isPrimaryChatSessionKey(sessionKey: string): boolean {
+  if (!sessionKey.startsWith('agent:')) return true;
+  const parts = sessionKey.split(':');
+  return !parts.includes('subagent');
+}
+
+function sanitizeSessionListText(text: string): string {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!value) return '';
+  const blockedPatterns = [
+    /<relevant-memories>/i,
+    /treat every memory below as untrusted/i,
+    /read heartbeat\.md/i,
+    /heartbeat_ok/i,
+    /sender \(untrusted metadata\)/i,
+    /\[subagent context\]/i,
+    /you are running as a subagent/i,
+    /\.trajectory(?:\.jsonl)?$/i,
+    /\.checkpoint\.[^.]+(?:\.jsonl)?$/i,
+  ];
+  return blockedPatterns.some((pattern) => pattern.test(value)) ? '' : value;
+}
 
 function appendMessageDedup(
   prev: ChatMsg[],
@@ -81,11 +105,27 @@ function extractText(content: unknown): string {
   return '';
 }
 
+function formatToolInput(input: unknown): string | undefined {
+  if (input == null) return undefined;
+  if (typeof input === 'string') return input;
+  try {
+    return JSON.stringify(input, null, 2);
+  } catch {
+    return String(input);
+  }
+}
+
 function extractToolCalls(content: unknown): Array<{ name: string; input?: string }> {
   if (!Array.isArray(content)) return [];
-  return content
-    .filter((b: any) => b?.type === 'tool_use')
-    .map((b: any) => ({ name: b.name || 'tool', input: b.input ? JSON.stringify(b.input, null, 2) : undefined }));
+  return content.flatMap((block: unknown) => {
+    if (!block || typeof block !== 'object') return [];
+    const b = block as { type?: string; name?: string; input?: unknown; arguments?: unknown };
+    if (b.type !== 'tool_use' && b.type !== 'toolCall') return [];
+    return [{
+      name: b.name || 'tool',
+      input: formatToolInput(b.input ?? b.arguments),
+    }];
+  });
 }
 
 function fmtTime(ts?: number): string {
@@ -485,22 +525,26 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
       }) as any;
       // Gateway returns { sessions: [...] }
       const list = Array.isArray(res?.sessions) ? res.sessions : [];
-      setSessions(list.map((s: any) => ({
+      setSessions(list.map((s: any) => {
+        const label = sanitizeSessionListText(s.derivedTitle || s.label || s.displayName || '');
+        const preview = sanitizeSessionListText(s.lastMessagePreview || '');
+        return {
         key: s.key || s.id || '',
-        label: s.derivedTitle || s.label || s.displayName || s.key || '',
+        label,
         kind: s.chatType || s.kind || '',
         lastActiveAt: s.updatedAt ? new Date(s.updatedAt).toISOString() : '',
         totalTokens: s.totalTokens || 0,
-        lastMessagePreview: s.lastMessagePreview || '',
+        lastMessagePreview: preview,
         model: s.model || '',
         modelProvider: s.modelProvider || '',
         inputTokens: s.inputTokens || 0,
         outputTokens: s.outputTokens || 0,
         thinkingLevel: s.thinkingLevel || '',
-        derivedTitle: s.derivedTitle || '',
+        derivedTitle: sanitizeSessionListText(s.derivedTitle || ''),
         maxContextTokens: s.maxContextTokens || s.contextWindow || s.maxTokens || 0,
         compacted: !!s.compacted,
-      })));
+      };
+      }).filter((s: GwSession) => s.key && (s.label || s.lastMessagePreview || !s.key.includes('.trajectory'))));
     } catch { /* ignore */ }
     finally { setSessionsLoading(false); }
   }, [gwReady]);
@@ -702,9 +746,10 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
 
   // Sidebar: filtered + grouped sessions
   const filteredSessions = useMemo(() => {
-    if (!sidebarSearch) return sessions;
+    const primarySessions = sessions.filter((s) => s.key && isPrimaryChatSessionKey(s.key));
+    if (!sidebarSearch) return primarySessions;
     const q = sidebarSearch.toLowerCase();
-    return sessions.filter(s => 
+    return primarySessions.filter(s => 
       (s.label || '').toLowerCase().includes(q) ||
       (s.key || '').toLowerCase().includes(q) ||
       (s.lastMessagePreview || '').toLowerCase().includes(q)
@@ -765,6 +810,27 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
     const idempotencyKey = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
     try {
+      const localSession = sessions.find(s => s.key === sessionKey);
+      let model = String(localSession?.model || '').trim();
+      let provider = String(localSession?.modelProvider || '').trim();
+      let thinkingLevel = String(localSession?.thinkingLevel || '').trim();
+      if (!model || !provider) {
+        try {
+          const sessionResult = await gwApi.proxy('sessions.list', { limit: 100 }) as any;
+          const sessionList = Array.isArray(sessionResult?.sessions) ? sessionResult.sessions : [];
+          const remoteSession = sessionList.find((s: any) => String(s?.key || '') === sessionKey);
+          model = String(remoteSession?.model || remoteSession?.modelOverride || model || sessionResult?.defaults?.model || '').trim();
+          provider = String(remoteSession?.modelProvider || remoteSession?.providerOverride || provider || sessionResult?.defaults?.modelProvider || '').trim();
+          thinkingLevel = String(remoteSession?.thinkingLevel || thinkingLevel || sessionResult?.defaults?.thinkingLevel || '').trim();
+        } catch (err) {
+          console.warn('[Sessions] failed to inspect model before send:', err);
+        }
+      }
+      if (shouldForceDeepSeekV4ThinkingOff(model, provider) && thinkingLevel !== 'off') {
+        await gwApi.proxy('sessions.patch', { key: sessionKey, thinkingLevel: 'off' });
+        setSessions(prev => prev.map(s => s.key === sessionKey ? { ...s, thinkingLevel: 'off' } : s));
+      }
+
       const res = await gwApi.proxy('chat.send', {
         sessionKey,
         message: msg,
@@ -1173,7 +1239,7 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
     a.download = `chat-${sessionKey}-${new Date().toISOString().split('T')[0]}.md`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [messages, sessionKey]);
+  }, [messages, sessionKey, sessions]);
 
   // Resend a user message (edit + resend)
   const resendMessage = useCallback((idx: number) => {
