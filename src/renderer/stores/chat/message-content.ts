@@ -3,10 +3,20 @@ import type { ContentBlock, RawMessage } from './types';
 export function getMessageText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
-    return (content as Array<{ type?: string; text?: string }>)
-      .filter((block) => block.type === 'text' && block.text)
-      .map((block) => block.text!)
+    return (content as Array<{ type?: string; text?: string; thinking?: string; content?: unknown }>)
+      .map((block) => {
+        if (typeof block.text === 'string') return block.text;
+        if (typeof block.thinking === 'string') return block.thinking;
+        if (block.content != null) return getMessageText(block.content);
+        return '';
+      })
+      .filter(Boolean)
       .join('\n');
+  }
+  if (content && typeof content === 'object') {
+    const record = content as Record<string, unknown>;
+    if (typeof record.text === 'string') return record.text;
+    if (typeof record.content === 'string' || Array.isArray(record.content)) return getMessageText(record.content);
   }
   return '';
 }

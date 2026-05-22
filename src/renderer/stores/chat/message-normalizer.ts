@@ -3,13 +3,22 @@ import { toMs } from './time';
 import { getMessageText, isToolResultRole } from './message-content';
 
 export function getMessageDedupeKey(message: RawMessage): string {
-  const text = getMessageText(message.content).trim();
+  const text = getComparableMessageText(message);
   return [
     message.id || '',
     message.role || '',
     message.timestamp ? String(Math.round(toMs(message.timestamp))) : '',
     text.slice(0, 180),
   ].join('|');
+}
+
+function getComparableMessageText(message: RawMessage): string {
+  const text = getMessageText(message.content).replace(/\s+/g, ' ').trim();
+  if (text) return text;
+  const record = message as unknown as Record<string, unknown>;
+  if (typeof record.text === 'string') return record.text.replace(/\s+/g, ' ').trim();
+  if (typeof record.details === 'string') return record.details.replace(/\s+/g, ' ').trim();
+  return '';
 }
 
 function hashString(input: string): string {
@@ -31,13 +40,21 @@ export function makeStableMessageId(prefix: string, message: RawMessage, fallbac
 export function isSameChatMessage(a: RawMessage, b: RawMessage): boolean {
   if (a.id && b.id && a.id === b.id) return true;
   if (a.role !== b.role) return false;
-  const aText = getMessageText(a.content).trim();
-  const bText = getMessageText(b.content).trim();
-  if (aText !== bText) return false;
-  if (a.timestamp && b.timestamp) {
-    return Math.abs(toMs(a.timestamp) - toMs(b.timestamp)) < 30_000;
+  const aText = getComparableMessageText(a);
+  const bText = getComparableMessageText(b);
+  if (!aText || !bText) return false;
+  const timeDistance = a.timestamp && b.timestamp ? Math.abs(toMs(a.timestamp) - toMs(b.timestamp)) : 0;
+  const sameTimeWindow = !a.timestamp || !b.timestamp || timeDistance < 90_000;
+  if (!sameTimeWindow) return false;
+  if (aText === bText) return true;
+  // Gateway may echo the final assistant answer with a short prefix/suffix
+  // compared with the already streamed final event. Treat same-role messages
+  // in the same time window as duplicates when one text contains the other.
+  const minLength = Math.min(aText.length, bText.length);
+  if (minLength >= 24 && (aText.includes(bText) || bText.includes(aText))) {
+    return true;
   }
-  return Boolean(aText);
+  return false;
 }
 
 export function getMessageTimeMs(message: RawMessage): number | null {
@@ -81,8 +98,8 @@ function sortMessagesChronologically(
 }
 
 function isRicherMessage(next: RawMessage, prev: RawMessage): boolean {
-  const nextText = getMessageText(next.content).trim();
-  const prevText = getMessageText(prev.content).trim();
+  const nextText = getComparableMessageText(next);
+  const prevText = getComparableMessageText(prev);
   if (nextText.length !== prevText.length) return nextText.length > prevText.length;
   const nextFiles = next._attachedFiles?.length || 0;
   const prevFiles = prev._attachedFiles?.length || 0;
@@ -91,7 +108,7 @@ function isRicherMessage(next: RawMessage, prev: RawMessage): boolean {
 }
 
 function getMessageTextForFiltering(message: RawMessage): string {
-  const text = getMessageText(message.content).trim();
+  const text = getComparableMessageText(message);
   if (text) return text;
   const details = (message as unknown as Record<string, unknown>).details;
   return typeof details === 'string' ? details.trim() : '';
