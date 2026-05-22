@@ -1,0 +1,19 @@
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a26;--text:#e8e8f0;--text2:#a0a0b8;--text3:#6a6a82;--accent2:#a78bfa;--max:760px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);line-height:1.75;min-height:100vh}
+a{color:var(--accent2);text-decoration:none}
+a:hover{text-decoration:underline}
+.container{max-width:var(--max);margin:0 auto;padding:0 24px}
+nav{border-bottom:1px solid var(--bg3);background:rgba(10,10,15,.9)}
+nav .inner{max-width:900px;margin:0 auto;padding:14px 24px;display:flex;justify-content:space-between;align-items:center}
+nav .logo{font-weight:800;color:var(--text)}
+nav .back{font-size:.86rem;color:var(--text2)}
+.prose-page{padding:28px 24px 60px;max-width:900px;margin:0 auto}
+.crumb{font-size:.82rem;color:var(--text3);margin-bottom:16px}
+.prose-page h1{font-size:1.55rem;margin-bottom:12px}
+.lead{color:var(--text2);font-size:.95rem;margin-bottom:28px}
+.repo-list{list-style:none;padding:0}
+.repo-list li{padding:14px 0;border-bottom:1px solid var(--bg3);font-size:.92rem;color:var(--text2)}
+.repo-list li strong{color:var(--text)}
+.foot{margin-top:28px;font-size:.82rem;color:var(--text3)}
+.page-foot{padding:24px;text-align:center;border-top:1px solid var(--bg3);font-size:.82rem;color:var(--text3)}

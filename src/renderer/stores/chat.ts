@@ -7,81 +7,71 @@ import { create } from 'zustand';
 import { hostApiFetch } from '@/lib/host-api';
 import { useGatewayStore } from './gateway';
 import { useAgentsStore } from './agents';
+import { resolveEventTargetSessionKey, type InFlightRunState } from './chat/event-routing';
+import {
+  finishInFlightRun as finishRegisteredInFlightRun,
+  inFlightRunBySession,
+  sessionKeyByRunId,
+  trackInFlightRun,
+} from './chat/run-registry';
+import { createHistoryRequestController } from './chat/history-requests';
+import { toMs } from './chat/time';
+import { loadSessionFavorites, saveSessionFavorites } from './chat/session-favorites';
+import { createMessageQueueScheduler } from './chat/message-queue';
+import { createSessionLabelBackfillController } from './chat/session-label-backfill';
+import { mergeLoadedHistoryWithVisibleMessages, mergeOptimisticDuringSend } from './chat/history-merge';
+import {
+  extractTextFromContent,
+  getMessageText,
+  hasNonToolAssistantContent,
+  isToolOnlyMessage,
+  isToolResultRole,
+} from './chat/message-content';
+import {
+  formatModelRefForNotice,
+  clearSessionEntryFromMap,
+  getAgentIdFromSessionKey,
+  getCanonicalPrefixFromSessionKey,
+  getCanonicalPrefixFromSessions,
+  isInternalSessionTitle,
+  isNamedAgentMainSession,
+  isPrimaryChatSession,
+  parseSessionUpdatedAtMs,
+  readSessionModel,
+} from './chat/session-utils';
+import {
+  filterVisibleHistoryMessages,
+  getMessageDedupeKey,
+  getMessageTimeMs,
+  isHiddenInternalChatMessage,
+  isSameChatMessage,
+  makeStableMessageId,
+  normalizeVisibleMessages,
+} from './chat/message-normalizer';
+import { createRunMonitorController, type RunMonitorState } from './chat/run-monitor';
+import { appendMessageToSessionCache, loadMsgCache, removeMsgCache, saveMsgCache } from './chat/session-message-cache';
 import { buildCronSessionHistoryPath, isCronSessionKey } from './chat/cron-session-utils';
+import { collectToolUpdates, upsertToolStatuses } from './chat/tool-updates';
+import {
+  cacheOutgoingAttachments,
+  enrichWithCachedImages,
+  enrichWithToolResultFiles,
+  extractImagesAsAttachedFiles,
+  extractMediaRefs,
+  extractRawFilePaths,
+  getToolCallFilePath,
+  hasAssistantMessageAfter,
+  loadMissingPreviews,
+  makeAttachedFile,
+} from './chat/media-attachments';
+import type { AttachedFileMeta, ChatSession, ContentBlock, QueuedChatMessage, RawMessage, ToolStatus } from './chat/types';
 import { formatDeepSeekReasoningReplayError, isDeepSeekReasoningReplayError } from '@/lib/deepseek-reasoning-error';
 import { shouldForceDeepSeekV4ThinkingOff } from '@/lib/deepseek-v4-thinking';
 
 // ── Types ────────────────────────────────────────────────────────
 
-/** Metadata for locally-attached files (not from Gateway) */
-export interface AttachedFileMeta {
-  fileName: string;
-  mimeType: string;
-  fileSize: number;
-  preview: string | null;
-  filePath?: string;
-}
-
-/** Raw message from OpenClaw chat.history */
-export interface RawMessage {
-  role: 'user' | 'assistant' | 'system' | 'toolresult';
-  content: unknown; // string | ContentBlock[]
-  timestamp?: number;
-  id?: string;
-  toolCallId?: string;
-  toolName?: string;
-  details?: unknown;
-  isError?: boolean;
-  /** Local-only: file metadata for user-uploaded attachments (not sent to/from Gateway) */
-  _attachedFiles?: AttachedFileMeta[];
-  reasoning_content?: unknown;
-  /** Gateway/OpenClaw: human-readable error when stopReason is error (e.g. stream failed before content) */
-  errorMessage?: string;
-  stopReason?: string;
-  stop_reason?: string;
-}
-
-/** Content block inside a message */
-export interface ContentBlock {
-  type: 'text' | 'image' | 'thinking' | 'tool_use' | 'tool_result' | 'toolCall' | 'toolResult';
-  text?: string;
-  thinking?: string;
-  source?: { type: string; media_type?: string; data?: string; url?: string };
-  /** Flat image format from Gateway tool results (no source wrapper) */
-  data?: string;
-  mimeType?: string;
-  id?: string;
-  name?: string;
-  input?: unknown;
-  arguments?: unknown;
-  content?: unknown;
-}
-
-/** Session from sessions.list */
-export interface ChatSession {
-  key: string;
-  label?: string;
-  displayName?: string;
-  thinkingLevel?: string;
-  model?: string;
-  modelProvider?: string;
-  updatedAt?: number;
-  kind?: string;
-  spawnedBy?: string;
-  parentSessionKey?: string;
-  parentRunId?: string;
-  parentId?: string;
-}
-
-export interface ToolStatus {
-  id?: string;
-  toolCallId?: string;
-  name: string;
-  status: 'running' | 'completed' | 'error';
-  durationMs?: number;
-  summary?: string;
-  updatedAt: number;
-}
+export type { AttachedFileMeta, ChatSession, ContentBlock, QueuedChatMessage, RawMessage, ToolStatus } from './chat/types';
+export type { RunMonitorState } from './chat/run-monitor';
 
 interface ChatState {
   // Messages
@@ -99,6 +89,9 @@ interface ChatState {
   lastUserMessageAt: number | null;
   /** Images collected from tool results, attached to the next assistant message */
   pendingToolImages: AttachedFileMeta[];
+  messageQueue: QueuedChatMessage[];
+  activityLabel: string | null;
+  runMonitor: RunMonitorState | null;
 
   // Sessions
   sessions: ChatSession[];
@@ -130,7 +123,9 @@ interface ChatState {
     text: string,
     attachments?: Array<{ fileName: string; mimeType: string; fileSize: number; stagedPath: string; preview: string | null }>,
     targetAgentId?: string | null,
+    forcedSessionKey?: string | null,
   ) => Promise<void>;
+  drainMessageQueue: () => Promise<void>;
   abortRun: () => Promise<void>;
   handleChatEvent: (event: Record<string, unknown>) => void;
   toggleThinking: () => void;
@@ -143,782 +138,266 @@ interface ChatState {
 // during tool-use conversations where streamingMessage is temporarily cleared
 // between tool-result finals and the next delta.
 let _lastChatEventAt = 0;
+const _lastChatEventAtBySession = new Map<string, number>();
 // Session key that was active when the most recent sendMessage was initiated.
 // Kept only as a fallback for legacy Gateway events that do not carry sessionKey.
 let _sendingSessionKey: string | null = null;
+const _sessionAliasToCanonicalKey = new Map<string, string>();
 
-const SESSION_FAVORITES_STORAGE_KEY = 'axon.chat.sessionFavorites.v1';
+const _locallyCreatedEmptySessions = new Set<string>();
+const _knownEmptySessions = new Set<string>();
 
-function loadSessionFavorites(): Record<string, boolean> {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return {};
-    const raw = window.localStorage.getItem(SESSION_FAVORITES_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== 'object') return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([key, value]) => key && value === true),
-    );
-  } catch {
-    return {};
-  }
+const runMonitorController = createRunMonitorController({
+  getCurrentSessionKey: () => useChatStore.getState().currentSessionKey,
+  setVisibleMonitor: (monitor) => useChatStore.setState({ runMonitor: monitor }),
+});
+
+const updateRunMonitor = runMonitorController.update;
+const finishRunMonitor = runMonitorController.finish;
+
+const messageQueueScheduler = createMessageQueueScheduler({
+  drain: () => useChatStore.getState().drainMessageQueue(),
+});
+
+const scheduleQueuedMessageDrain = messageQueueScheduler.schedule;
+
+function markChatEvent(sessionKey: string | null | undefined, at = Date.now()): void {
+  _lastChatEventAt = at;
+  if (sessionKey) _lastChatEventAtBySession.set(sessionKey, at);
 }
 
-function saveSessionFavorites(favorites: Record<string, boolean>): void {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    window.localStorage.setItem(
-      SESSION_FAVORITES_STORAGE_KEY,
-      JSON.stringify(Object.fromEntries(Object.entries(favorites).filter(([, value]) => value === true))),
-    );
-  } catch {
-    // ignore storage failures
-  }
+function getLastChatEventAt(sessionKey: string): number {
+  return _lastChatEventAtBySession.get(sessionKey) ?? _lastChatEventAt;
 }
 
-interface InFlightRunState {
-  sessionKey: string;
-  runId: string | null;
-  lastUserMessageAt: number | null;
+function shouldHideKnownEmptySession(sessionKey: string): boolean {
+  return _knownEmptySessions.has(sessionKey) && !_locallyCreatedEmptySessions.has(sessionKey);
 }
 
-const _inFlightRunBySession = new Map<string, InFlightRunState>();
-const _sessionKeyByRunId = new Map<string, string>();
+function rememberSessionHasMessages(sessionKey: string): void {
+  _knownEmptySessions.delete(sessionKey);
+  _locallyCreatedEmptySessions.delete(sessionKey);
+}
 
-function trackInFlightRun(sessionKey: string, runId: string | null, lastUserMessageAt?: number | null): void {
-  if (!sessionKey) return;
-  const previous = _inFlightRunBySession.get(sessionKey);
-  const next: InFlightRunState = {
-    sessionKey,
-    runId: runId || previous?.runId || null,
-    lastUserMessageAt: lastUserMessageAt ?? previous?.lastUserMessageAt ?? null,
-  };
-  _inFlightRunBySession.set(sessionKey, next);
-  if (next.runId) {
-    _sessionKeyByRunId.set(next.runId, sessionKey);
-  }
+function registerSessionAlias(
+  alias: unknown,
+  canonicalKey: string,
+  options: { overwrite?: boolean } = {},
+): void {
+  const value = String(alias || '').trim();
+  if (!value || !canonicalKey) return;
+  const existing = _sessionAliasToCanonicalKey.get(value);
+  if (existing && existing !== canonicalKey && !options.overwrite) return;
+  _sessionAliasToCanonicalKey.set(value, canonicalKey);
+}
+
+function canonicalizeSessionKey(sessionKey: unknown): string {
+  const value = String(sessionKey || '').trim();
+  if (!value) return '';
+  return _sessionAliasToCanonicalKey.get(value) || value;
 }
 
 function finishInFlightRun(sessionKey: string | null | undefined, runId?: string | null): void {
-  if (sessionKey) {
-    const existing = _inFlightRunBySession.get(sessionKey);
-    if (!runId || !existing?.runId || existing.runId === runId) {
-      _inFlightRunBySession.delete(sessionKey);
-    }
-  }
-  if (runId) {
-    _sessionKeyByRunId.delete(runId);
-  }
-  if (_sendingSessionKey && (!_inFlightRunBySession.has(_sendingSessionKey))) {
+  finishRegisteredInFlightRun(sessionKey, runId);
+  if (_sendingSessionKey && (!inFlightRunBySession.has(_sendingSessionKey))) {
     _sendingSessionKey = null;
   }
-}
-
-/** Normalize a timestamp to milliseconds. Handles both seconds and ms. */
-function toMs(ts: number): number {
-  // Timestamps < 1e12 are in seconds (before ~2033); >= 1e12 are milliseconds
-  return ts < 1e12 ? ts * 1000 : ts;
+  scheduleQueuedMessageDrain();
 }
 
 // Timer for fallback history polling during active sends.
 // If no streaming events arrive within a few seconds, we periodically
 // poll chat.history to surface intermediate tool-call turns.
-let _historyPollTimer: ReturnType<typeof setTimeout> | null = null;
-let _historyRequestSeq = 0;
-const _latestHistoryRequestBySession = new Map<string, number>();
+const _historyPollTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const historyRequests = createHistoryRequestController({
+  getCurrentSessionKey: () => useChatStore.getState().currentSessionKey,
+});
 
-// Timer for delayed error finalization. When the Gateway reports a mid-stream
-// error (e.g. "terminated"), it may retry internally and recover. We wait
-// before committing the error to give the recovery path a chance.
-let _errorRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+// Timers for delayed error finalization. When the Gateway reports a mid-stream
+// error (e.g. "terminated"), it may retry internally and recover. Scope these
+// by session so one conversation cannot cancel another conversation's recovery.
+const _errorRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-function clearErrorRecoveryTimer(): void {
-  if (_errorRecoveryTimer) {
-    clearTimeout(_errorRecoveryTimer);
-    _errorRecoveryTimer = null;
+function hasErrorRecoveryTimer(sessionKey: string): boolean {
+  return _errorRecoveryTimers.has(sessionKey);
+}
+
+function clearErrorRecoveryTimer(sessionKey?: string): void {
+  if (sessionKey) {
+    const timer = _errorRecoveryTimers.get(sessionKey);
+    if (timer) clearTimeout(timer);
+    _errorRecoveryTimers.delete(sessionKey);
+    return;
   }
-}
-
-function clearHistoryPoll(): void {
-  if (_historyPollTimer) {
-    clearTimeout(_historyPollTimer);
-    _historyPollTimer = null;
+  for (const timer of _errorRecoveryTimers.values()) {
+    clearTimeout(timer);
   }
+  _errorRecoveryTimers.clear();
 }
 
-function beginHistoryRequest(sessionKey: string): number {
-  const requestId = ++_historyRequestSeq;
-  _latestHistoryRequestBySession.set(sessionKey, requestId);
-  return requestId;
+function scheduleErrorRecoveryTimer(sessionKey: string, callback: () => void, delayMs: number): void {
+  clearErrorRecoveryTimer(sessionKey);
+  _errorRecoveryTimers.set(sessionKey, setTimeout(() => {
+    _errorRecoveryTimers.delete(sessionKey);
+    callback();
+  }, delayMs));
 }
 
-function isHistoryRequestCurrent(sessionKey: string, requestId: number): boolean {
-  const latest = _latestHistoryRequestBySession.get(sessionKey);
-  return latest === requestId && useChatStore.getState().currentSessionKey === sessionKey;
+function clearHistoryPoll(sessionKey?: string): void {
+  if (sessionKey) {
+    const timer = _historyPollTimers.get(sessionKey);
+    if (timer) clearTimeout(timer);
+    _historyPollTimers.delete(sessionKey);
+    return;
+  }
+  for (const timer of _historyPollTimers.values()) {
+    clearTimeout(timer);
+  }
+  _historyPollTimers.clear();
+}
+
+function scheduleHistoryPoll(sessionKey: string, callback: () => void, delayMs: number): void {
+  clearHistoryPoll(sessionKey);
+  _historyPollTimers.set(sessionKey, setTimeout(callback, delayMs));
+}
+
+function applySessionPreviewFromMessages(sessionKey: string, messages: RawMessage[]): void {
+  const visible = filterVisibleHistoryMessages(messages);
+  const firstUser = visible.find((m) => m.role === 'user');
+  const lastMsg = visible[visible.length - 1];
+  useChatStore.setState((state) => {
+    const next: Partial<ChatState> = {};
+    if (visible.length === 0) return next;
+    if (firstUser) {
+      const labelText = getMessageText(firstUser.content).trim();
+      if (labelText && !(state.sessionLabels?.[sessionKey] || '').trim()) {
+        next.sessionLabels = {
+          ...state.sessionLabels,
+          [sessionKey]: labelText.length > 50 ? `${labelText.slice(0, 50)}…` : labelText,
+        };
+      }
+    }
+    if (lastMsg?.timestamp) {
+      next.sessionLastActivity = { ...state.sessionLastActivity, [sessionKey]: toMs(lastMsg.timestamp) };
+    }
+    return next;
+  });
+}
+
+const sessionLabelBackfill = createSessionLabelBackfillController({
+  getState: () => useChatStore.getState(),
+  isInternalSessionTitle,
+  loadCache: loadMsgCache,
+  applyPreview: applySessionPreviewFromMessages,
+  loadHistory: async (sessionKey, limit) => {
+    const response = await useGatewayStore.getState().rpc<Record<string, unknown>>(
+      'chat.history',
+      { sessionKey, limit },
+    );
+    return Array.isArray(response.messages) ? response.messages as RawMessage[] : [];
+  },
+});
+
+const scheduleSessionLabelBackfill = sessionLabelBackfill.schedule;
+
+function hasVisibleCachedMessages(sessionKey: string): boolean {
+  return filterVisibleHistoryMessages(loadMsgCache(sessionKey)).length > 0;
+}
+
+function tagMessagesForSession(messages: RawMessage[], sessionKey: string): RawMessage[] {
+  return messages.map((message) => (
+    message._sessionKey === sessionKey ? message : { ...message, _sessionKey: sessionKey }
+  ));
 }
 
 const DEFAULT_CANONICAL_PREFIX = 'agent:main';
 const DEFAULT_SESSION_KEY = `${DEFAULT_CANONICAL_PREFIX}:main`;
 
-// ── Local image cache ─────────────────────────────────────────
-// The Gateway doesn't store image attachments in session content blocks,
-// so we cache them locally keyed by staged file path (which appears in the
-// [media attached: <path> ...] reference in the Gateway's user message text).
-// Keying by path avoids the race condition of keying by runId (which is only
-// available after the RPC returns, but history may load before that).
-const IMAGE_CACHE_KEY = 'clawx:image-cache';
-const IMAGE_CACHE_MAX = 100; // max entries to prevent unbounded growth
+function normalizeOpenAiCodexSessionModel(
+  modelRaw: string,
+  providerRaw: string,
+): { model: string; provider: string; changed: boolean } {
+  const originalModel = String(modelRaw || '').trim();
+  const originalProvider = String(providerRaw || '').trim();
+  if (!originalModel) return { model: originalModel, provider: originalProvider, changed: false };
 
-function loadImageCache(): Map<string, AttachedFileMeta> {
-  try {
-    const raw = localStorage.getItem(IMAGE_CACHE_KEY);
-    if (raw) {
-      const entries = JSON.parse(raw) as Array<[string, AttachedFileMeta]>;
-      return new Map(entries);
-    }
-  } catch { /* ignore parse errors */ }
-  return new Map();
-}
-
-function saveImageCache(cache: Map<string, AttachedFileMeta>): void {
-  try {
-    // Evict oldest entries if over limit
-    const entries = Array.from(cache.entries());
-    const trimmed = entries.length > IMAGE_CACHE_MAX
-      ? entries.slice(entries.length - IMAGE_CACHE_MAX)
-      : entries;
-    localStorage.setItem(IMAGE_CACHE_KEY, JSON.stringify(trimmed));
-  } catch { /* ignore quota errors */ }
-}
-
-const _imageCache = loadImageCache();
-
-// ── Local session message cache (localStorage) ───────────────────────────
-// Acts as a persistent fallback so messages survive renderer reloads and
-// transient Gateway unavailability. Also prevents applyLoadedMessages from
-// wiping in-memory messages that the Gateway hasn't persisted yet (race).
-const MSG_CACHE_PREFIX = 'axon.chat.session-msgs.v1.';
-const MSG_CACHE_MAX_PER_SESSION = 200; // max messages stored per session
-
-function msgCacheKey(sessionKey: string): string {
-  return MSG_CACHE_PREFIX + encodeURIComponent(sessionKey);
-}
-
-function saveMsgCache(sessionKey: string, messages: RawMessage[]): void {
-  if (!sessionKey) return;
-  try {
-    if (messages.length === 0 && localStorage.getItem(msgCacheKey(sessionKey))) {
-      return;
-    }
-    const toSave = messages.slice(-MSG_CACHE_MAX_PER_SESSION);
-    localStorage.setItem(msgCacheKey(sessionKey), JSON.stringify(toSave));
-  } catch { /* ignore quota errors */ }
-}
-
-function loadMsgCache(sessionKey: string): RawMessage[] {
-  if (!sessionKey) return [];
-  try {
-    const raw = localStorage.getItem(msgCacheKey(sessionKey));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as RawMessage[]) : [];
-  } catch { return []; }
-}
-
-function getMessageDedupeKey(message: RawMessage): string {
-  const text = getMessageText(message.content).trim();
-  return [
-    message.id || '',
-    message.role || '',
-    message.timestamp ? String(Math.round(toMs(message.timestamp))) : '',
-    text.slice(0, 180),
-  ].join('|');
-}
-
-function isSameChatMessage(a: RawMessage, b: RawMessage): boolean {
-  if (a.id && b.id && a.id === b.id) return true;
-  if (a.role !== b.role) return false;
-  const aText = getMessageText(a.content).trim();
-  const bText = getMessageText(b.content).trim();
-  if (aText !== bText) return false;
-  if (a.timestamp && b.timestamp) {
-    return Math.abs(toMs(a.timestamp) - toMs(b.timestamp)) < 30_000;
-  }
-  return Boolean(aText);
-}
-
-function appendMessageToSessionCache(sessionKey: string, message: RawMessage): RawMessage[] {
-  const cached = loadMsgCache(sessionKey);
-  const msgKey = getMessageDedupeKey(message);
-  const exists = cached.some((item) => {
-    if (isSameChatMessage(item, message)) return true;
-    return getMessageDedupeKey(item) === msgKey;
-  });
-  const next = exists ? cached : [...cached, message].slice(-MSG_CACHE_MAX_PER_SESSION);
-  saveMsgCache(sessionKey, next);
-  return next;
-}
-
-/** Extract plain text from message content (string or content blocks) */
-function getMessageText(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return (content as Array<{ type?: string; text?: string }>)
-      .filter(b => b.type === 'text' && b.text)
-      .map(b => b.text!)
-      .join('\n');
-  }
-  return '';
-}
-
-/** Extract media file refs from [media attached: <path> (<mime>) | ...] patterns */
-function extractMediaRefs(text: string): Array<{ filePath: string; mimeType: string }> {
-  const refs: Array<{ filePath: string; mimeType: string }> = [];
-  const regex = /\[media attached:\s*([^\s(]+)\s*\(([^)]+)\)\s*\|[^\]]*\]/g;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    refs.push({ filePath: match[1], mimeType: match[2] });
-  }
-  return refs;
-}
-
-/** Map common file extensions to MIME types */
-function mimeFromExtension(filePath: string): string {
-  const ext = filePath.split('.').pop()?.toLowerCase() || '';
-  const map: Record<string, string> = {
-    // Images
-    'png': 'image/png',
-    'jpg': 'image/jpeg',
-    'jpeg': 'image/jpeg',
-    'gif': 'image/gif',
-    'webp': 'image/webp',
-    'bmp': 'image/bmp',
-    'avif': 'image/avif',
-    'svg': 'image/svg+xml',
-    // Documents
-    'pdf': 'application/pdf',
-    'doc': 'application/msword',
-    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'xls': 'application/vnd.ms-excel',
-    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'ppt': 'application/vnd.ms-powerpoint',
-    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'txt': 'text/plain',
-    'csv': 'text/csv',
-    'md': 'text/markdown',
-    'rtf': 'application/rtf',
-    'epub': 'application/epub+zip',
-    // Archives
-    'zip': 'application/zip',
-    'tar': 'application/x-tar',
-    'gz': 'application/gzip',
-    'rar': 'application/vnd.rar',
-    '7z': 'application/x-7z-compressed',
-    // Audio
-    'mp3': 'audio/mpeg',
-    'wav': 'audio/wav',
-    'ogg': 'audio/ogg',
-    'aac': 'audio/aac',
-    'flac': 'audio/flac',
-    'm4a': 'audio/mp4',
-    // Video
-    'mp4': 'video/mp4',
-    'mov': 'video/quicktime',
-    'avi': 'video/x-msvideo',
-    'mkv': 'video/x-matroska',
-    'webm': 'video/webm',
-    'm4v': 'video/mp4',
-  };
-  return map[ext] || 'application/octet-stream';
-}
-
-/**
- * Extract raw file paths from message text.
- * Detects absolute paths (Unix: / or ~/, Windows: C:\ etc.) ending with common file extensions.
- * Handles both image and non-image files, consistent with channel push message behavior.
- */
-function extractRawFilePaths(text: string): Array<{ filePath: string; mimeType: string }> {
-  const refs: Array<{ filePath: string; mimeType: string }> = [];
-  const seen = new Set<string>();
-  const exts = 'png|jpe?g|gif|webp|bmp|avif|svg|pdf|docx?|xlsx?|pptx?|txt|csv|md|rtf|epub|zip|tar|gz|rar|7z|mp3|wav|ogg|aac|flac|m4a|mp4|mov|avi|mkv|webm|m4v';
-  // Unix absolute paths (/... or ~/...) — lookbehind rejects mid-token slashes
-  // (e.g. "path/to/file.mp4", "https://example.com/file.mp4")
-  const unixRegex = new RegExp(`(?<![\\w./:])((?:\\/|~\\/)[^\\s\\n"'()\\[\\],<>]*?\\.(?:${exts}))`, 'gi');
-  // Windows absolute paths (C:\... D:\...) — lookbehind rejects drive letter glued to a word
-  const winRegex = new RegExp(`(?<![\\w])([A-Za-z]:\\\\[^\\s\\n"'()\\[\\],<>]*?\\.(?:${exts}))`, 'gi');
-  for (const regex of [unixRegex, winRegex]) {
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      const p = match[1];
-      if (p && !seen.has(p)) {
-        seen.add(p);
-        refs.push({ filePath: p, mimeType: mimeFromExtension(p) });
-      }
-    }
-  }
-  return refs;
-}
-
-/**
- * Extract images from a content array (including nested tool_result content).
- * Converts them to AttachedFileMeta entries with preview set to data URL or remote URL.
- */
-function extractImagesAsAttachedFiles(content: unknown): AttachedFileMeta[] {
-  if (!Array.isArray(content)) return [];
-  const files: AttachedFileMeta[] = [];
-
-  for (const block of content as ContentBlock[]) {
-    if (block.type === 'image') {
-      // Path 1: Anthropic source-wrapped format {source: {type, media_type, data}}
-      if (block.source) {
-        const src = block.source;
-        const mimeType = src.media_type || 'image/jpeg';
-
-        if (src.type === 'base64' && src.data) {
-          files.push({
-            fileName: 'image',
-            mimeType,
-            fileSize: 0,
-            preview: `data:${mimeType};base64,${src.data}`,
-          });
-        } else if (src.type === 'url' && src.url) {
-          files.push({
-            fileName: 'image',
-            mimeType,
-            fileSize: 0,
-            preview: src.url,
-          });
-        }
-      }
-      // Path 2: Flat format from Gateway tool results {data, mimeType}
-      else if (block.data) {
-        const mimeType = block.mimeType || 'image/jpeg';
-        files.push({
-          fileName: 'image',
-          mimeType,
-          fileSize: 0,
-          preview: `data:${mimeType};base64,${block.data}`,
-        });
-      }
-    }
-    // Recurse into tool_result content blocks
-    if ((block.type === 'tool_result' || block.type === 'toolResult') && block.content) {
-      files.push(...extractImagesAsAttachedFiles(block.content));
-    }
-  }
-  return files;
-}
-
-/**
- * Build an AttachedFileMeta entry for a file ref, using cache if available.
- */
-function makeAttachedFile(ref: { filePath: string; mimeType: string }): AttachedFileMeta {
-  const cached = _imageCache.get(ref.filePath);
-  if (cached) return { ...cached, filePath: ref.filePath };
-  const fileName = ref.filePath.split(/[\\/]/).pop() || 'file';
-  return { fileName, mimeType: ref.mimeType, fileSize: 0, preview: null, filePath: ref.filePath };
-}
-
-/**
- * Extract file path from a tool call's arguments by toolCallId.
- * Searches common argument names: file_path, filePath, path, file.
- */
-function getToolCallFilePath(msg: RawMessage, toolCallId: string): string | undefined {
-  if (!toolCallId) return undefined;
-
-  // Anthropic/normalized format — toolCall blocks in content array
-  const content = msg.content;
-  if (Array.isArray(content)) {
-    for (const block of content as ContentBlock[]) {
-      if ((block.type === 'tool_use' || block.type === 'toolCall') && block.id === toolCallId) {
-        const args = (block.input ?? block.arguments) as Record<string, unknown> | undefined;
-        if (args) {
-          const fp = args.file_path ?? args.filePath ?? args.path ?? args.file;
-          if (typeof fp === 'string') return fp;
-        }
-      }
-    }
+  let model = originalModel.replace(/cdoex/gi, 'codex');
+  let provider = originalProvider;
+  let leaf = model;
+  const slashIndex = model.indexOf('/');
+  if (slashIndex > 0) {
+    provider = model.slice(0, slashIndex).trim() || provider;
+    leaf = model.slice(slashIndex + 1).trim();
   }
 
-  // OpenAI format — tool_calls array on the message itself
-  const msgAny = msg as unknown as Record<string, unknown>;
-  const toolCalls = msgAny.tool_calls ?? msgAny.toolCalls;
-  if (Array.isArray(toolCalls)) {
-    for (const tc of toolCalls as Array<Record<string, unknown>>) {
-      if (tc.id !== toolCallId) continue;
-      const fn = (tc.function ?? tc) as Record<string, unknown>;
-      let args: Record<string, unknown> | undefined;
-      try {
-        args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments ?? fn.input) as Record<string, unknown>;
-      } catch { /* ignore */ }
-      if (args) {
-        const fp = args.file_path ?? args.filePath ?? args.path ?? args.file;
-        if (typeof fp === 'string') return fp;
-      }
-    }
+  const unsupportedCodexLeaf = /^gpt-5\.2-codex$/i.test(leaf);
+  if (unsupportedCodexLeaf) {
+    leaf = 'gpt-5.4-mini';
+  }
+  if (/^gpt-5\.4$/i.test(leaf)) {
+    leaf = 'gpt-5.4-mini';
   }
 
-  return undefined;
-}
-
-/**
- * Collect all tool call file paths from a message into a Map<toolCallId, filePath>.
- */
-function collectToolCallPaths(msg: RawMessage, paths: Map<string, string>): void {
-  const content = msg.content;
-  if (Array.isArray(content)) {
-    for (const block of content as ContentBlock[]) {
-      if ((block.type === 'tool_use' || block.type === 'toolCall') && block.id) {
-        const args = (block.input ?? block.arguments) as Record<string, unknown> | undefined;
-        if (args) {
-          const fp = args.file_path ?? args.filePath ?? args.path ?? args.file;
-          if (typeof fp === 'string') paths.set(block.id, fp);
-        }
-      }
-    }
-  }
-  const msgAny = msg as unknown as Record<string, unknown>;
-  const toolCalls = msgAny.tool_calls ?? msgAny.toolCalls;
-  if (Array.isArray(toolCalls)) {
-    for (const tc of toolCalls as Array<Record<string, unknown>>) {
-      const id = typeof tc.id === 'string' ? tc.id : '';
-      if (!id) continue;
-      const fn = (tc.function ?? tc) as Record<string, unknown>;
-      let args: Record<string, unknown> | undefined;
-      try {
-        args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments ?? fn.input) as Record<string, unknown>;
-      } catch { /* ignore */ }
-      if (args) {
-        const fp = args.file_path ?? args.filePath ?? args.path ?? args.file;
-        if (typeof fp === 'string') paths.set(id, fp);
-      }
-    }
-  }
-}
-
-/**
- * Before filtering tool_result messages from history, scan them for any file/image
- * content and attach those to the immediately following assistant message.
- * This mirrors channel push message behavior where tool outputs surface files to the UI.
- * Handles:
- *   - Image content blocks (base64 / url)
- *   - [media attached: path (mime) | path] text patterns in tool result output
- *   - Raw file paths in tool result text
- */
-function enrichWithToolResultFiles(messages: RawMessage[]): RawMessage[] {
-  const pending: AttachedFileMeta[] = [];
-  const toolCallPaths = new Map<string, string>();
-
-  return messages.map((msg) => {
-    // Track file paths from assistant tool call arguments for later matching
-    if (msg.role === 'assistant') {
-      collectToolCallPaths(msg, toolCallPaths);
-    }
-
-    if (isToolResultRole(msg.role)) {
-      // Resolve file path from the matching tool call
-      const matchedPath = msg.toolCallId ? toolCallPaths.get(msg.toolCallId) : undefined;
-
-      // 1. Image/file content blocks in the structured content array
-      const imageFiles = extractImagesAsAttachedFiles(msg.content);
-      if (matchedPath) {
-        for (const f of imageFiles) {
-          if (!f.filePath) {
-            f.filePath = matchedPath;
-            f.fileName = matchedPath.split(/[\\/]/).pop() || 'image';
-          }
-        }
-      }
-      pending.push(...imageFiles);
-
-      // 2. [media attached: ...] patterns in tool result text output
-      const text = getMessageText(msg.content);
-      if (text) {
-        const mediaRefs = extractMediaRefs(text);
-        const mediaRefPaths = new Set(mediaRefs.map(r => r.filePath));
-        for (const ref of mediaRefs) {
-          pending.push(makeAttachedFile(ref));
-        }
-        // 3. Raw file paths in tool result text (documents, audio, video, etc.)
-        for (const ref of extractRawFilePaths(text)) {
-          if (!mediaRefPaths.has(ref.filePath)) {
-            pending.push(makeAttachedFile(ref));
-          }
-        }
-      }
-
-      return msg; // will be filtered later
-    }
-
-    if (msg.role === 'assistant' && pending.length > 0) {
-      const toAttach = pending.splice(0);
-      // Deduplicate against files already on the assistant message
-      const existingPaths = new Set(
-        (msg._attachedFiles || []).map(f => f.filePath).filter(Boolean),
-      );
-      const newFiles = toAttach.filter(f => !f.filePath || !existingPaths.has(f.filePath));
-      if (newFiles.length === 0) return msg;
-      return {
-        ...msg,
-        _attachedFiles: [...(msg._attachedFiles || []), ...newFiles],
-      };
-    }
-
-    return msg;
-  });
-}
-
-/**
- * Restore _attachedFiles for messages loaded from history.
- * Handles:
- *   1. [media attached: path (mime) | path] patterns (attachment-button flow)
- *   2. Raw image file paths typed in message text (e.g. /Users/.../image.png)
- * Uses local cache for previews when available; missing previews are loaded async.
- *
- * For assistant messages: even when _attachedFiles already exists (e.g. from tool results),
- * we still extract paths from text and merge them so files appear as separate cards outside
- * the bubble instead of raw paths inside the bubble.
- */
-function enrichWithCachedImages(messages: RawMessage[]): RawMessage[] {
-  return messages.map((msg, idx) => {
-    if (msg.role !== 'user' && msg.role !== 'assistant') return msg;
-    const text = getMessageText(msg.content);
-
-    // User messages: skip if already enriched (attachments come from upload flow)
-    if (msg.role === 'user' && msg._attachedFiles) return msg;
-
-    // Path 1: [media attached: path (mime) | path] — guaranteed format from attachment button
-    const mediaRefs = extractMediaRefs(text);
-    const mediaRefPaths = new Set(mediaRefs.map(r => r.filePath));
-
-    // Path 2: Raw file paths.
-    // For assistant messages: scan own text AND the nearest preceding user message text,
-    // but only for non-tool-only assistant messages (i.e. the final answer turn).
-    // Tool-only messages (thinking + tool calls) should not show file previews — those
-    // belong to the final answer message that comes after the tool results.
-    // User messages never get raw-path previews so the image is not shown twice.
-    let rawRefs: Array<{ filePath: string; mimeType: string }> = [];
-    if (msg.role === 'assistant' && !isToolOnlyMessage(msg)) {
-      // Own text
-      rawRefs = extractRawFilePaths(text).filter(r => !mediaRefPaths.has(r.filePath));
-
-      // Nearest preceding user message text (look back up to 5 messages)
-      const seenPaths = new Set(rawRefs.map(r => r.filePath));
-      for (let i = idx - 1; i >= Math.max(0, idx - 5); i--) {
-        const prev = messages[i];
-        if (!prev) break;
-        if (prev.role === 'user') {
-          const prevText = getMessageText(prev.content);
-          for (const ref of extractRawFilePaths(prevText)) {
-            if (!mediaRefPaths.has(ref.filePath) && !seenPaths.has(ref.filePath)) {
-              seenPaths.add(ref.filePath);
-              rawRefs.push(ref);
-            }
-          }
-          break; // only use the nearest user message
-        }
-      }
-    }
-
-    const allRefs = [...mediaRefs, ...rawRefs];
-    const existingPaths = new Set(
-      (msg._attachedFiles || []).map(f => f.filePath).filter(Boolean),
-    );
-    const newRefs = allRefs.filter(r => !existingPaths.has(r.filePath));
-    if (newRefs.length === 0 && !msg._attachedFiles) return msg;
-
-    const newFiles: AttachedFileMeta[] = newRefs.map(ref => {
-      const cached = _imageCache.get(ref.filePath);
-      if (cached) return { ...cached, filePath: ref.filePath };
-      const fileName = ref.filePath.split(/[\\/]/).pop() || 'file';
-      return { fileName, mimeType: ref.mimeType, fileSize: 0, preview: null, filePath: ref.filePath };
-    });
-    const files = [...(msg._attachedFiles || []), ...newFiles];
-    return { ...msg, _attachedFiles: files };
-  });
-}
-
-/**
- * Async: load missing previews from disk via IPC for messages that have
- * _attachedFiles with null previews. Updates messages in-place and triggers re-render.
- * Handles both [media attached: ...] patterns and raw filePath entries.
- */
-async function loadMissingPreviews(messages: RawMessage[]): Promise<boolean> {
-  // Collect all image paths that need previews
-  const needPreview: Array<{ filePath: string; mimeType: string }> = [];
-  const seenPaths = new Set<string>();
-
-  for (const msg of messages) {
-    if (!msg._attachedFiles) continue;
-
-    // Path 1: files with explicit filePath field (raw path detection or enriched refs)
-    for (const file of msg._attachedFiles) {
-      const fp = file.filePath;
-      if (!fp || seenPaths.has(fp)) continue;
-      // Images: need preview. Non-images: need file size (for FileCard display).
-      const needsLoad = file.mimeType.startsWith('image/')
-        ? !file.preview
-        : file.fileSize === 0;
-      if (needsLoad) {
-        seenPaths.add(fp);
-        needPreview.push({ filePath: fp, mimeType: file.mimeType });
-      }
-    }
-
-    // Path 2: [media attached: ...] patterns (legacy — in case filePath wasn't stored)
-    if (msg.role === 'user') {
-      const text = getMessageText(msg.content);
-      const refs = extractMediaRefs(text);
-      for (let i = 0; i < refs.length; i++) {
-        const file = msg._attachedFiles[i];
-        const ref = refs[i];
-        if (!file || !ref || seenPaths.has(ref.filePath)) continue;
-        const needsLoad = ref.mimeType.startsWith('image/') ? !file.preview : file.fileSize === 0;
-        if (needsLoad) {
-          seenPaths.add(ref.filePath);
-          needPreview.push(ref);
-        }
-      }
-    }
+  const shouldUseCodexProvider = provider.toLowerCase() === 'openai' || provider.toLowerCase() === 'openai-codex';
+  const isSupportedCodexAuthLeaf = /^gpt-5\.(?:3-codex|4-mini|5)$/i.test(leaf);
+  if (!shouldUseCodexProvider || (!unsupportedCodexLeaf && !isSupportedCodexAuthLeaf)) {
+    return {
+      model,
+      provider,
+      changed: model !== originalModel || provider !== originalProvider,
+    };
   }
 
-  if (needPreview.length === 0) return false;
-
-  try {
-    const thumbnails = await hostApiFetch<Record<string, { preview: string | null; fileSize: number }>>(
-      '/api/files/thumbnails',
-      {
-        method: 'POST',
-        body: JSON.stringify({ paths: needPreview }),
-      },
-    );
-
-    let updated = false;
-    for (const msg of messages) {
-      if (!msg._attachedFiles) continue;
-
-      // Update files that have filePath
-      for (const file of msg._attachedFiles) {
-        const fp = file.filePath;
-        if (!fp) continue;
-        const thumb = thumbnails[fp];
-        if (thumb && (thumb.preview || thumb.fileSize)) {
-          if (thumb.preview) file.preview = thumb.preview;
-          if (thumb.fileSize) file.fileSize = thumb.fileSize;
-          _imageCache.set(fp, { ...file });
-          updated = true;
-        }
-      }
-
-      // Legacy: update by index for [media attached: ...] refs
-      if (msg.role === 'user') {
-        const text = getMessageText(msg.content);
-        const refs = extractMediaRefs(text);
-        for (let i = 0; i < refs.length; i++) {
-          const file = msg._attachedFiles[i];
-          const ref = refs[i];
-          if (!file || !ref || file.filePath) continue; // skip if already handled via filePath
-          const thumb = thumbnails[ref.filePath];
-          if (thumb && (thumb.preview || thumb.fileSize)) {
-            if (thumb.preview) file.preview = thumb.preview;
-            if (thumb.fileSize) file.fileSize = thumb.fileSize;
-            _imageCache.set(ref.filePath, { ...file });
-            updated = true;
-          }
-        }
-      }
-    }
-    if (updated) saveImageCache(_imageCache);
-    return updated;
-  } catch (err) {
-    console.warn('[loadMissingPreviews] Failed:', err);
-    return false;
-  }
-}
-
-function getCanonicalPrefixFromSessions(sessions: ChatSession[]): string | null {
-  const canonical = sessions.find((s) => s.key.startsWith('agent:'))?.key;
-  if (!canonical) return null;
-  const parts = canonical.split(':');
-  if (parts.length < 2) return null;
-  return `${parts[0]}:${parts[1]}`;
-}
-
-function getAgentIdFromSessionKey(sessionKey: string): string {
-  if (!sessionKey.startsWith('agent:')) return 'main';
-  const parts = sessionKey.split(':');
-  return parts[1] || 'main';
-}
-
-function isPrimaryChatSessionKey(sessionKey: string): boolean {
-  if (!sessionKey.startsWith('agent:')) return true;
-  const parts = sessionKey.split(':');
-  return !parts.includes('subagent');
-}
-
-function isPrimaryChatSession(session: ChatSession): boolean {
-  if (!session.key || !isPrimaryChatSessionKey(session.key)) return false;
-  if (session.spawnedBy || session.parentSessionKey || session.parentRunId || session.parentId) return false;
-  const kind = String(session.kind || '').toLowerCase();
-  return kind !== 'subagent' && kind !== 'child' && kind !== 'spawned';
-}
-
-function parseSessionUpdatedAtMs(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return toMs(value);
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return undefined;
-}
-
-function readSessionModel(session: ChatSession | undefined): { model: string; provider: string; thinkingLevel: string } {
+  const nextProvider = 'openai-codex';
+  const nextModel = `${nextProvider}/${leaf}`;
   return {
-    model: String(session?.model || '').trim(),
-    provider: String(session?.modelProvider || '').trim(),
-    thinkingLevel: String(session?.thinkingLevel || '').trim(),
+    model: nextModel,
+    provider: nextProvider,
+    changed: nextModel !== originalModel || nextProvider !== originalProvider,
   };
 }
 
-function readModelFromGatewaySession(value: unknown): { model: string; provider: string; thinkingLevel: string } {
-  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  return {
-    model: String(record.model || record.modelOverride || '').trim(),
-    provider: String(record.modelProvider || record.providerOverride || '').trim(),
-    thinkingLevel: String(record.thinkingLevel || '').trim(),
-  };
-}
-
-async function ensureDeepSeekV4ThinkingOffBeforeSend(sessionKey: string): Promise<void> {
+async function prepareSessionBeforeSend(sessionKey: string): Promise<void> {
   if (!sessionKey) return;
 
   const state = useChatStore.getState();
   const localSession = state.sessions.find((session) => session.key === sessionKey);
   let { model, provider, thinkingLevel } = readSessionModel(localSession);
+  const originalModel = model;
 
-  if (!model || !provider) {
+  const codexNormalized = normalizeOpenAiCodexSessionModel(model, provider);
+  if (codexNormalized.changed) {
+    model = codexNormalized.model;
+    provider = codexNormalized.provider;
+    if (/openai-codex\/gpt-5\.2-codex/i.test(originalModel)) {
+      appendLocalSystemNotice(sessionKey, '当前 OpenAI Codex 配置不支持 gpt-5.2-codex，已自动切换到 openai-codex/gpt-5.4-mini。');
+    }
+    await useGatewayStore.getState().rpc(
+      'sessions.patch',
+      { key: sessionKey, model },
+      15_000,
+    );
+    useChatStore.setState((current) => ({
+      sessions: current.sessions.map((session) => (
+        session.key === sessionKey ? { ...session, model, modelProvider: provider } : session
+      )),
+    }));
     try {
-      const data = await useGatewayStore.getState().rpc<Record<string, unknown>>('sessions.list', {}, 15_000);
-      const rawSessions = Array.isArray(data.sessions) ? data.sessions as unknown[] : [];
-      const rawSession = rawSessions.find((item) => {
-        const record = item && typeof item === 'object' ? item as Record<string, unknown> : {};
-        return String(record.key || '') === sessionKey;
-      });
-      const fromSession = readModelFromGatewaySession(rawSession);
-      const defaults = readModelFromGatewaySession(data.defaults);
-      model = fromSession.model || model || defaults.model;
-      provider = fromSession.provider || provider || defaults.provider;
-      thinkingLevel = fromSession.thinkingLevel || thinkingLevel || defaults.thinkingLevel;
-    } catch (err) {
-      console.warn('[chat.deepseek] failed to inspect session model before send:', err);
+      if (typeof window !== 'undefined') {
+        const event = new CustomEvent('axon:session-model-pref-updated', {
+          detail: { sessionKey, model, provider },
+        });
+        window.dispatchEvent(event);
+      }
+    } catch {
+      // ignore UI preference sync failures
     }
   }
 
-  if (!shouldForceDeepSeekV4ThinkingOff(model, provider) || thinkingLevel === 'off') return;
+  if (!model || !provider) return;
+  if (!shouldForceDeepSeekV4ThinkingOff(model, provider) || thinkingLevel === 'off') {
+    return;
+  }
 
   await useGatewayStore.getState().rpc(
     'sessions.patch',
@@ -932,6 +411,91 @@ async function ensureDeepSeekV4ThinkingOffBeforeSend(sessionKey: string): Promis
       session.key === sessionKey ? { ...session, thinkingLevel: 'off' } : session
     )),
   }));
+}
+
+function isOpenAiCodexNetworkFailure(errorText: string): boolean {
+  const text = String(errorText || '').toLowerCase();
+  return text.includes('openai-codex')
+    && (
+      text.includes('network connection error')
+      || text.includes('fetch failed')
+      || text.includes('llm request failed')
+    );
+}
+
+function isOpenAiCodexModelContext(modelRaw: string, providerRaw: string): boolean {
+  const model = String(modelRaw || '').trim().toLowerCase();
+  const provider = String(providerRaw || '').trim().toLowerCase();
+  return provider === 'openai-codex'
+    || model.startsWith('openai-codex/')
+    || (
+      (provider === 'openai' || provider === 'openai-codex')
+      && /(?:^|\/)gpt-5\.(?:3-codex|4-mini|5|2-codex)$/i.test(model)
+    );
+}
+
+function isOpenAiCodexRegionAuthFailure(errorText: string): boolean {
+  const text = String(errorText || '').toLowerCase();
+  return (
+    text.includes('unsupported_country_region_territory')
+    || (
+      text.includes('token refresh failed')
+      && (
+        text.includes('unsupported country')
+        || text.includes('country_region')
+        || text.includes('region')
+      )
+    )
+  );
+}
+
+function formatOpenAiCodexRegionAuthFailure(errorText: string): string {
+  const raw = String(errorText || '').trim();
+  const detail = raw
+    .replace(/^error:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 300);
+  return [
+    'OpenAI GPT 登录认证刷新失败，当前账号或网络出口被 OpenAI 判定为不支持的国家/地区。',
+    '这类错误来自 OpenAI OAuth 刷新令牌接口，切换同一个 OpenAI Codex 模型不会解决。',
+    '请在「模型认证」中重新登录，或切换到可用地区的稳定网络/代理后再使用 OpenAI GPT Auth 模式。',
+    detail ? `原始错误：${detail}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function formatOpenAiCodexNetworkFailure(errorText: string): string {
+  const raw = String(errorText || '').trim();
+  const detail = raw
+    .replace(/^error:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 300);
+  return [
+    'OpenAI GPT Auth 网络请求失败，当前无法连接 ChatGPT 后端服务。',
+    '这不是普通 API Key 缺失问题；GPT 登录模式需要访问 https://chatgpt.com/backend-api，当前链路返回 fetch failed / network connection error。',
+    '切换 gpt-5.4-mini、gpt-5.3-codex 或 gpt-5.5 不会解决，因为它们都依赖同一条 OpenAI Codex Auth 网络链路。',
+    '请检查代理/VPN 是否对 AxonClawX、OpenClaw 的 Node 进程生效，或临时切换到可用的 API Key 模型。',
+    detail ? `原始错误：${detail}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function appendLocalSystemNotice(
+  sessionKey: string,
+  content: string,
+): void {
+  const notice: RawMessage = {
+    role: 'system',
+    content,
+    timestamp: Date.now() / 1000,
+    id: `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    _sessionKey: sessionKey,
+  };
+  const cached = loadMsgCache(sessionKey);
+  saveMsgCache(sessionKey, normalizeVisibleMessages([...cached, notice]));
+  useChatStore.setState((state) => {
+    if (state.currentSessionKey !== sessionKey) return state;
+    const messages = [...state.messages, notice];
+    return { messages };
+  });
 }
 
 async function loadCronFallbackMessages(sessionKey: string, limit = 200): Promise<RawMessage[]> {
@@ -963,14 +527,11 @@ function resolveMainSessionKeyForAgent(agentId: string | undefined | null): stri
 }
 
 function ensureSessionEntry(sessions: ChatSession[], sessionKey: string): ChatSession[] {
-  if (sessions.some((session) => session.key === sessionKey)) {
+  const canonicalKey = canonicalizeSessionKey(sessionKey);
+  if (sessions.some((session) => session.key === canonicalKey)) {
     return sessions;
   }
-  return [...sessions, { key: sessionKey, displayName: sessionKey }];
-}
-
-function clearSessionEntryFromMap<T extends Record<string, unknown>>(entries: T, sessionKey: string): T {
-  return Object.fromEntries(Object.entries(entries).filter(([key]) => key !== sessionKey)) as T;
+  return [...sessions, { key: canonicalKey, displayName: canonicalKey }];
 }
 
 function buildSessionSwitchPatch(
@@ -991,7 +552,8 @@ function buildSessionSwitchPatch(
     saveSessionFavorites(nextFavoriteSessionKeys);
   }
 
-  const nextInFlight = _inFlightRunBySession.get(nextSessionKey);
+  const nextInFlight = inFlightRunBySession.get(nextSessionKey);
+  const nextMonitor = runMonitorController.get(nextSessionKey);
   return {
     currentSessionKey: nextSessionKey,
     currentAgentId: getAgentIdFromSessionKey(nextSessionKey),
@@ -1013,78 +575,9 @@ function buildSessionSwitchPatch(
     pendingFinal: false,
     lastUserMessageAt: nextInFlight?.lastUserMessageAt ?? null,
     pendingToolImages: [],
+    runMonitor: nextMonitor,
+    activityLabel: nextInFlight ? (nextMonitor?.lastEventLabel || 'activityStarted') : null,
   };
-}
-
-function getCanonicalPrefixFromSessionKey(sessionKey: string): string | null {
-  if (!sessionKey.startsWith('agent:')) return null;
-  const parts = sessionKey.split(':');
-  if (parts.length < 2) return null;
-  return `${parts[0]}:${parts[1]}`;
-}
-
-function isToolOnlyMessage(message: RawMessage | undefined): boolean {
-  if (!message) return false;
-  if (isToolResultRole(message.role)) return true;
-
-  const msg = message as unknown as Record<string, unknown>;
-  const content = message.content;
-
-  // Check OpenAI-format tool_calls field (real-time streaming from OpenAI-compatible models)
-  const toolCalls = msg.tool_calls ?? msg.toolCalls;
-  const hasOpenAITools = Array.isArray(toolCalls) && toolCalls.length > 0;
-
-  if (!Array.isArray(content)) {
-    // Content is not an array — check if there's OpenAI-format tool_calls
-    if (hasOpenAITools) {
-      // Has tool calls but content might be empty/string — treat as tool-only
-      // if there's no meaningful text content
-      const textContent = typeof content === 'string' ? content.trim() : '';
-      return textContent.length === 0;
-    }
-    return false;
-  }
-
-  let hasTool = hasOpenAITools;
-  let hasText = false;
-  let hasNonToolContent = false;
-
-  for (const block of content as ContentBlock[]) {
-    if (block.type === 'tool_use' || block.type === 'tool_result' || block.type === 'toolCall' || block.type === 'toolResult') {
-      hasTool = true;
-      continue;
-    }
-    if (block.type === 'text' && block.text && block.text.trim()) {
-      hasText = true;
-      continue;
-    }
-    // Only actual image output disqualifies a tool-only message.
-    // Thinking blocks are internal reasoning that can accompany tool_use — they
-    // should NOT prevent the message from being treated as an intermediate tool step.
-    if (block.type === 'image') {
-      hasNonToolContent = true;
-    }
-  }
-
-  return hasTool && !hasText && !hasNonToolContent;
-}
-
-function isToolResultRole(role: unknown): boolean {
-  if (!role) return false;
-  const normalized = String(role).toLowerCase();
-  return normalized === 'toolresult' || normalized === 'tool_result';
-}
-
-function extractTextFromContent(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  const parts: string[] = [];
-  for (const block of content as ContentBlock[]) {
-    if (block.type === 'text' && block.text) {
-      parts.push(block.text);
-    }
-  }
-  return parts.join('\n');
 }
 
 /** True if the in-flight assistant stream has anything worth persisting locally. */
@@ -1123,13 +616,19 @@ function flushPartialStreamingToMessages(
     role: 'assistant',
     id: snapId,
     timestamp: stream.timestamp ?? Math.floor(Date.now() / 1000),
+    _sessionKey: currentSessionKey,
   };
-  set((s) => ({ messages: [...s.messages, snapshot] }));
-  saveMsgCache(currentSessionKey, get().messages);
+  set((s) => ({ messages: normalizeVisibleMessages([...s.messages, snapshot]) }));
+  saveMsgCache(currentSessionKey, tagMessagesForSession(get().messages, currentSessionKey));
 }
 
 /** Re-attach assistant rows saved locally after abort/stop; Gateway often has no row for them yet. */
-function appendPreservedLocalPartials(incoming: RawMessage[], previous: RawMessage[]): RawMessage[] {
+function appendPreservedLocalPartials(
+  incoming: RawMessage[],
+  previous: RawMessage[],
+  options: { afterMs?: number | null; allow?: boolean } = {},
+): RawMessage[] {
+  if (!options.allow) return normalizeVisibleMessages(incoming);
   const incomingIds = new Set(
     incoming.map((m) => m.id).filter((id): id is string => typeof id === 'string' && id.length > 0),
   );
@@ -1140,6 +639,10 @@ function appendPreservedLocalPartials(incoming: RawMessage[], previous: RawMessa
   const extra = previous.filter((m) => {
     if (m.role !== 'assistant' || typeof m.id !== 'string' || !m.id.startsWith('local-partial-')) return false;
     if (incomingIds.has(m.id)) return false;
+    if (options.afterMs != null) {
+      const msgMs = getMessageTimeMs(m);
+      if (!msgMs || msgMs < options.afterMs - 1_000) return false;
+    }
     const ptext = getMessageText(m.content).trim();
     if (lastIncomingText && ptext) {
       const prefix = ptext.slice(0, Math.min(ptext.length, 160));
@@ -1147,7 +650,7 @@ function appendPreservedLocalPartials(incoming: RawMessage[], previous: RawMessa
     }
     return true;
   });
-  return extra.length > 0 ? [...incoming, ...extra] : incoming;
+  return normalizeVisibleMessages(extra.length > 0 ? [...incoming, ...extra] : incoming);
 }
 
 async function refreshSessionHistoryCache(sessionKey: string, limit = 200): Promise<void> {
@@ -1157,6 +660,7 @@ async function refreshSessionHistoryCache(sessionKey: string, limit = 200): Prom
       'chat.history',
       { sessionKey, limit },
     );
+    registerSessionAlias(data?.sessionId, sessionKey, { overwrite: true });
     let rawMessages = Array.isArray(data?.messages) ? data.messages as RawMessage[] : [];
     if (rawMessages.length === 0 && isCronSessionKey(sessionKey)) {
       rawMessages = await loadCronFallbackMessages(sessionKey, limit);
@@ -1164,10 +668,20 @@ async function refreshSessionHistoryCache(sessionKey: string, limit = 200): Prom
     if (rawMessages.length === 0) return;
 
     const messagesWithToolImages = enrichWithToolResultFiles(rawMessages);
-    const filteredMessages = messagesWithToolImages.filter((msg) => !isToolResultRole(msg.role));
+    const filteredMessages = filterVisibleHistoryMessages(messagesWithToolImages);
     const enrichedMessages = enrichWithCachedImages(filteredMessages);
     const cached = loadMsgCache(sessionKey);
-    const finalMessages = appendPreservedLocalPartials(enrichedMessages, cached);
+    const inFlight = inFlightRunBySession.get(sessionKey);
+    let finalMessages = appendPreservedLocalPartials(enrichedMessages, cached, {
+      allow: Boolean(inFlight),
+      afterMs: inFlight?.lastUserMessageAt ?? null,
+    });
+    finalMessages = mergeLoadedHistoryWithVisibleMessages(finalMessages, cached, sessionKey);
+    const currentState = useChatStore.getState();
+    if (currentState.currentSessionKey === sessionKey && currentState.messages.length > 0) {
+      finalMessages = mergeLoadedHistoryWithVisibleMessages(finalMessages, currentState.messages, sessionKey);
+    }
+    finalMessages = tagMessagesForSession(finalMessages, sessionKey);
     saveMsgCache(sessionKey, finalMessages);
 
     const lastMsg = finalMessages[finalMessages.length - 1];
@@ -1177,7 +691,7 @@ async function refreshSessionHistoryCache(sessionKey: string, limit = 200): Prom
         sessionLastActivity: { ...s.sessionLastActivity, [sessionKey]: lastAt },
       };
 
-      if (!sessionKey.endsWith(':main') && !s.sessionLabels[sessionKey]) {
+      if (!isNamedAgentMainSession(sessionKey) && !s.sessionLabels[sessionKey]) {
         const firstUserMsg = finalMessages.find((m) => m.role === 'user');
         const labelText = firstUserMsg ? getMessageText(firstUserMsg.content).trim() : '';
         if (labelText) {
@@ -1189,7 +703,7 @@ async function refreshSessionHistoryCache(sessionKey: string, limit = 200): Prom
       }
 
       if (s.currentSessionKey === sessionKey) {
-        patch.messages = finalMessages;
+        patch.messages = normalizeVisibleMessages(finalMessages);
         patch.loading = false;
       }
 
@@ -1208,6 +722,24 @@ function handleBackgroundChatEvent(
 ): void {
   if (!sessionKey) return;
   if (runId) trackInFlightRun(sessionKey, runId);
+  updateRunMonitor(sessionKey, {
+    runId: runId || null,
+    status: resolvedState === 'error'
+      ? 'failed'
+      : resolvedState === 'aborted'
+        ? 'aborted'
+        : 'running',
+    lastEventLabel: resolvedState === 'delta'
+      ? 'activityGenerating'
+      : resolvedState === 'final'
+        ? 'activityFinalizing'
+        : resolvedState === 'error'
+          ? 'activityRecovering'
+          : resolvedState === 'aborted'
+            ? 'activityAborted'
+            : 'activityStarted',
+    touch: true,
+  });
 
   switch (resolvedState) {
     case 'started': {
@@ -1216,14 +748,19 @@ function handleBackgroundChatEvent(
     }
     case 'final': {
       const finalMsg = event.message as RawMessage | undefined;
+      if (finalMsg && isHiddenInternalChatMessage(finalMsg)) {
+        void refreshSessionHistoryCache(sessionKey);
+        break;
+      }
       if (finalMsg && !isToolResultRole(finalMsg.role)) {
         const hasOutput = hasNonToolAssistantContent(finalMsg);
-        const msgId = finalMsg.id || (runId ? `run-${runId}` : `bg-${Date.now()}`);
+        const msgId = finalMsg.id || makeStableMessageId(runId ? `run-${runId}` : 'bg', finalMsg);
         const normalized: RawMessage = {
           ...finalMsg,
           role: (finalMsg.role || 'assistant') as RawMessage['role'],
           id: msgId,
           timestamp: finalMsg.timestamp ?? Math.floor(Date.now() / 1000),
+          _sessionKey: sessionKey,
         };
         appendMessageToSessionCache(sessionKey, normalized);
         useChatStore.setState((s) => ({
@@ -1233,9 +770,11 @@ function handleBackgroundChatEvent(
           },
         }));
         if (hasOutput) {
+          finishRunMonitor(sessionKey, 'completed');
           finishInFlightRun(sessionKey, runId);
         }
       } else if (!finalMsg) {
+        finishRunMonitor(sessionKey, 'completed');
         finishInFlightRun(sessionKey, runId);
       }
       void refreshSessionHistoryCache(sessionKey);
@@ -1243,6 +782,7 @@ function handleBackgroundChatEvent(
     }
     case 'error':
     case 'aborted': {
+      finishRunMonitor(sessionKey, resolvedState === 'aborted' ? 'aborted' : 'failed');
       finishInFlightRun(sessionKey, runId);
       void refreshSessionHistoryCache(sessionKey);
       break;
@@ -1257,219 +797,6 @@ function isMessageOlderThanInFlightUser(message: unknown, inFlight: InFlightRunS
   const timestamp = (message as RawMessage).timestamp;
   if (!timestamp) return false;
   return toMs(timestamp) < inFlight.lastUserMessageAt - 500;
-}
-
-function mergeOptimisticDuringSend(incoming: RawMessage[], previous: RawMessage[], lastUserMessageAt: number | null): RawMessage[] {
-  if (!lastUserMessageAt) return incoming;
-  const userMs = toMs(lastUserMessageAt);
-  const hasUser = incoming.some(
-    (m) => m.role === 'user' && m.timestamp && Math.abs(toMs(m.timestamp) - userMs) < 30_000,
-  );
-  const optimistic = [...previous].reverse().find(
-    (m) => m.role === 'user' && m.timestamp && Math.abs(toMs(m.timestamp) - userMs) < 30_000,
-  );
-  const withOptimistic = hasUser || !optimistic ? incoming : [...incoming, optimistic];
-
-  // During an active run, Gateway history can lag behind the renderer state.
-  // Never let a short/empty history response remove messages already visible
-  // in this session; only merge newly discovered rows into the existing list.
-  const merged = [...previous];
-  for (const msg of withOptimistic) {
-    const existingIndex = merged.findIndex((item) => {
-      if (isSameChatMessage(item, msg)) return true;
-      return getMessageDedupeKey(item) === getMessageDedupeKey(msg);
-    });
-    if (existingIndex >= 0) {
-      merged[existingIndex] = { ...merged[existingIndex], ...msg };
-    } else {
-      merged.push(msg);
-    }
-  }
-  return merged;
-}
-
-function summarizeToolOutput(text: string): string | undefined {
-  const trimmed = text.trim();
-  if (!trimmed) return undefined;
-  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (lines.length === 0) return undefined;
-  const summaryLines = lines.slice(0, 2);
-  let summary = summaryLines.join(' / ');
-  if (summary.length > 160) {
-    summary = `${summary.slice(0, 157)}...`;
-  }
-  return summary;
-}
-
-function normalizeToolStatus(rawStatus: unknown, fallback: 'running' | 'completed'): ToolStatus['status'] {
-  const status = typeof rawStatus === 'string' ? rawStatus.toLowerCase() : '';
-  if (status === 'error' || status === 'failed') return 'error';
-  if (status === 'completed' || status === 'success' || status === 'done') return 'completed';
-  return fallback;
-}
-
-function parseDurationMs(value: unknown): number | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  const parsed = typeof value === 'string' ? Number(value) : NaN;
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function extractToolUseUpdates(message: unknown): ToolStatus[] {
-  if (!message || typeof message !== 'object') return [];
-  const msg = message as Record<string, unknown>;
-  const updates: ToolStatus[] = [];
-
-  // Path 1: Anthropic/normalized format — tool blocks inside content array
-  const content = msg.content;
-  if (Array.isArray(content)) {
-    for (const block of content as ContentBlock[]) {
-      if ((block.type !== 'tool_use' && block.type !== 'toolCall') || !block.name) continue;
-      updates.push({
-        id: block.id || block.name,
-        toolCallId: block.id,
-        name: block.name,
-        status: 'running',
-        updatedAt: Date.now(),
-      });
-    }
-  }
-
-  // Path 2: OpenAI format — tool_calls array on the message itself
-  if (updates.length === 0) {
-    const toolCalls = msg.tool_calls ?? msg.toolCalls;
-    if (Array.isArray(toolCalls)) {
-      for (const tc of toolCalls as Array<Record<string, unknown>>) {
-        const fn = (tc.function ?? tc) as Record<string, unknown>;
-        const name = typeof fn.name === 'string' ? fn.name : '';
-        if (!name) continue;
-        const id = typeof tc.id === 'string' ? tc.id : name;
-        updates.push({
-          id,
-          toolCallId: typeof tc.id === 'string' ? tc.id : undefined,
-          name,
-          status: 'running',
-          updatedAt: Date.now(),
-        });
-      }
-    }
-  }
-
-  return updates;
-}
-
-function extractToolResultBlocks(message: unknown, eventState: string): ToolStatus[] {
-  if (!message || typeof message !== 'object') return [];
-  const msg = message as Record<string, unknown>;
-  const content = msg.content;
-  if (!Array.isArray(content)) return [];
-
-  const updates: ToolStatus[] = [];
-  for (const block of content as ContentBlock[]) {
-    if (block.type !== 'tool_result' && block.type !== 'toolResult') continue;
-    const outputText = extractTextFromContent(block.content ?? block.text ?? '');
-    const summary = summarizeToolOutput(outputText);
-    updates.push({
-      id: block.id || block.name || 'tool',
-      toolCallId: block.id,
-      name: block.name || block.id || 'tool',
-      status: normalizeToolStatus(undefined, eventState === 'delta' ? 'running' : 'completed'),
-      summary,
-      updatedAt: Date.now(),
-    });
-  }
-
-  return updates;
-}
-
-function extractToolResultUpdate(message: unknown, eventState: string): ToolStatus | null {
-  if (!message || typeof message !== 'object') return null;
-  const msg = message as Record<string, unknown>;
-  const role = typeof msg.role === 'string' ? msg.role.toLowerCase() : '';
-  if (!isToolResultRole(role)) return null;
-
-  const toolName = typeof msg.toolName === 'string' ? msg.toolName : (typeof msg.name === 'string' ? msg.name : '');
-  const toolCallId = typeof msg.toolCallId === 'string' ? msg.toolCallId : undefined;
-  const details = (msg.details && typeof msg.details === 'object') ? msg.details as Record<string, unknown> : undefined;
-  const rawStatus = (msg.status ?? details?.status);
-  const fallback = eventState === 'delta' ? 'running' : 'completed';
-  const status = normalizeToolStatus(rawStatus, fallback);
-  const durationMs = parseDurationMs(details?.durationMs ?? details?.duration ?? (msg as Record<string, unknown>).durationMs);
-
-  const outputText = (details && typeof details.aggregated === 'string')
-    ? details.aggregated
-    : extractTextFromContent(msg.content);
-  const summary = summarizeToolOutput(outputText) ?? summarizeToolOutput(String(details?.error ?? msg.error ?? ''));
-
-  const name = toolName || toolCallId || 'tool';
-  const id = toolCallId || name;
-
-  return {
-    id,
-    toolCallId,
-    name,
-    status,
-    durationMs,
-    summary,
-    updatedAt: Date.now(),
-  };
-}
-
-function mergeToolStatus(existing: ToolStatus['status'], incoming: ToolStatus['status']): ToolStatus['status'] {
-  const order: Record<ToolStatus['status'], number> = { running: 0, completed: 1, error: 2 };
-  return order[incoming] >= order[existing] ? incoming : existing;
-}
-
-function upsertToolStatuses(current: ToolStatus[], updates: ToolStatus[]): ToolStatus[] {
-  if (updates.length === 0) return current;
-  const next = [...current];
-  for (const update of updates) {
-    const key = update.toolCallId || update.id || update.name;
-    if (!key) continue;
-    const index = next.findIndex((tool) => (tool.toolCallId || tool.id || tool.name) === key);
-    if (index === -1) {
-      next.push(update);
-      continue;
-    }
-    const existing = next[index];
-    next[index] = {
-      ...existing,
-      ...update,
-      name: update.name || existing.name,
-      status: mergeToolStatus(existing.status, update.status),
-      durationMs: update.durationMs ?? existing.durationMs,
-      summary: update.summary ?? existing.summary,
-      updatedAt: update.updatedAt || existing.updatedAt,
-    };
-  }
-  return next;
-}
-
-function collectToolUpdates(message: unknown, eventState: string): ToolStatus[] {
-  const updates: ToolStatus[] = [];
-  const toolResultUpdate = extractToolResultUpdate(message, eventState);
-  if (toolResultUpdate) updates.push(toolResultUpdate);
-  updates.push(...extractToolResultBlocks(message, eventState));
-  updates.push(...extractToolUseUpdates(message));
-  return updates;
-}
-
-function hasNonToolAssistantContent(message: RawMessage | undefined): boolean {
-  if (!message) return false;
-  if (typeof message.content === 'string' && message.content.trim()) return true;
-
-  const content = message.content;
-  if (Array.isArray(content)) {
-    for (const block of content as ContentBlock[]) {
-      if (block.type === 'text' && block.text && block.text.trim()) return true;
-      if (block.type === 'thinking' && block.thinking && block.thinking.trim()) return true;
-      if (block.type === 'image') return true;
-    }
-  }
-
-  const msg = message as unknown as Record<string, unknown>;
-  if (typeof msg.text === 'string' && msg.text.trim()) return true;
-
-  return false;
 }
 
 // ── Store ────────────────────────────────────────────────────────
@@ -1487,6 +814,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   pendingFinal: false,
   lastUserMessageAt: null,
   pendingToolImages: [],
+  messageQueue: [],
+  activityLabel: null,
+  runMonitor: null,
 
   sessions: [],
   currentSessionKey: DEFAULT_SESSION_KEY,
@@ -1507,6 +837,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const rawSessions = Array.isArray(data.sessions) ? data.sessions : [];
         const sessions: ChatSession[] = rawSessions.map((s: Record<string, unknown>) => ({
           key: String(s.key || ''),
+          sessionId: s.sessionId ? String(s.sessionId) : undefined,
           label: s.label ? String(s.label) : undefined,
           displayName: s.displayName ? String(s.displayName) : undefined,
           kind: s.kind ? String(s.kind) : undefined,
@@ -1518,9 +849,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
           model: s.model ? String(s.model) : undefined,
           modelProvider: s.modelProvider ? String(s.modelProvider) : undefined,
           updatedAt: parseSessionUpdatedAtMs(s.updatedAt),
-        })).filter((s: ChatSession) => isPrimaryChatSession(s));
+        }))
+          .filter((s: ChatSession) => isPrimaryChatSession(s))
+          .filter((s: ChatSession) => !shouldHideKnownEmptySession(s.key));
 
+        _sessionAliasToCanonicalKey.clear();
         const canonicalBySuffix = new Map<string, string>();
+        for (const session of sessions) {
+          registerSessionAlias(session.key, session.key, { overwrite: true });
+        }
+        for (const session of sessions) {
+          registerSessionAlias(session.sessionId, session.key, { overwrite: true });
+        }
         for (const session of sessions) {
           if (!session.key.startsWith('agent:')) continue;
           const parts = session.key.split(':');
@@ -1528,22 +868,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const suffix = parts.slice(2).join(':');
           if (suffix && !canonicalBySuffix.has(suffix)) {
             canonicalBySuffix.set(suffix, session.key);
+            registerSessionAlias(suffix, session.key);
           }
         }
 
         // Deduplicate: if both short and canonical existed, keep canonical only
         const seen = new Set<string>();
-        const dedupedSessions = sessions.filter((s) => {
-          if (!s.key.startsWith('agent:') && canonicalBySuffix.has(s.key)) return false;
+        const dedupedSessionsRaw = sessions.filter((s) => {
+          const canonicalForShortKey = !s.key.startsWith('agent:') ? canonicalizeSessionKey(s.key) : s.key;
+          if (!s.key.startsWith('agent:') && canonicalForShortKey !== s.key) return false;
           if (seen.has(s.key)) return false;
           seen.add(s.key);
           return true;
         });
 
-        const { currentSessionKey, sessions: localSessions } = get();
+        const { currentSessionKey, sessions: localSessions, favoriteSessionKeys } = get();
+        const dedupedSessions = dedupedSessionsRaw.filter((session) => {
+          const title = session.displayName || session.label;
+          if (!isInternalSessionTitle(title)) return true;
+          if (favoriteSessionKeys[session.key]) return true;
+          return false;
+        });
+
         let nextSessionKey = currentSessionKey || DEFAULT_SESSION_KEY;
         if (!nextSessionKey.startsWith('agent:')) {
-          const canonicalMatch = canonicalBySuffix.get(nextSessionKey);
+          const canonicalMatch = canonicalizeSessionKey(nextSessionKey) || canonicalBySuffix.get(nextSessionKey);
           if (canonicalMatch) {
             nextSessionKey = canonicalMatch;
           }
@@ -1551,18 +900,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (!dedupedSessions.find((s) => s.key === nextSessionKey) && dedupedSessions.length > 0) {
           // Preserve only locally-created pending sessions. On initial boot the
           // default ghost key (`agent:main:main`) should yield to real history.
-          const hasLocalPendingSession = localSessions.some((session) => session.key === nextSessionKey);
-          if (!hasLocalPendingSession) {
+          const localPendingSession = localSessions.find((session) => session.key === nextSessionKey);
+          const localPendingTitle = localPendingSession?.displayName || localPendingSession?.label;
+          const shouldPreserveLocalPending = Boolean(localPendingSession)
+            && !isInternalSessionTitle(localPendingTitle)
+            && (
+              _locallyCreatedEmptySessions.has(nextSessionKey)
+              || inFlightRunBySession.has(nextSessionKey)
+              || hasVisibleCachedMessages(nextSessionKey)
+              || Boolean(get().sessionLabels[nextSessionKey])
+              || Boolean(get().favoriteSessionKeys[nextSessionKey])
+            );
+          if (!shouldPreserveLocalPending) {
             nextSessionKey = dedupedSessions[0].key;
           }
         }
 
-        const sessionsWithCurrent = !dedupedSessions.find((s) => s.key === nextSessionKey) && nextSessionKey
+        const localKeepSessions = localSessions.filter((session) => {
+          if (!session.key || dedupedSessions.some((item) => item.key === session.key)) return false;
+          if (shouldHideKnownEmptySession(session.key)) return false;
+          if (inFlightRunBySession.has(session.key)) return true;
+          if (isInternalSessionTitle(session.displayName || session.label) && !favoriteSessionKeys[session.key]) {
+            return false;
+          }
+          if (!_locallyCreatedEmptySessions.has(session.key) && loadMsgCache(session.key).length === 0) {
+            const state = get();
+            if (!state.sessionLabels[session.key] && !state.favoriteSessionKeys[session.key]) return false;
+          }
+          return true;
+        });
+
+        const mergedSessions = [...dedupedSessions, ...localKeepSessions];
+
+        const sessionsWithCurrent = !mergedSessions.find((s) => s.key === nextSessionKey) && nextSessionKey
           ? [
-            ...dedupedSessions,
+            ...mergedSessions,
             { key: nextSessionKey, displayName: nextSessionKey },
           ]
-          : dedupedSessions;
+          : mergedSessions;
 
         const discoveredActivity = Object.fromEntries(
           sessionsWithCurrent
@@ -1574,7 +949,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const remappedLabels: Record<string, string> = { ...state.sessionLabels };
           for (const [k, v] of Object.entries(state.sessionLabels || {})) {
             if (!k.startsWith('agent:')) {
-              const canonical = canonicalBySuffix.get(k);
+              const canonical = canonicalizeSessionKey(k) || canonicalBySuffix.get(k);
               if (canonical && !remappedLabels[canonical]) {
                 remappedLabels[canonical] = v;
               }
@@ -1583,7 +958,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const remappedFavorites: Record<string, boolean> = { ...state.favoriteSessionKeys };
           for (const [k, v] of Object.entries(state.favoriteSessionKeys || {})) {
             if (!v || k.startsWith('agent:')) continue;
-            const canonical = canonicalBySuffix.get(k);
+            const canonical = canonicalizeSessionKey(k) || canonicalBySuffix.get(k);
             if (canonical) {
               remappedFavorites[canonical] = true;
               delete remappedFavorites[k];
@@ -1608,42 +983,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           get().loadHistory();
         }
 
-        // Background: fetch first user message for every non-main session to populate labels upfront.
-        // Uses a small limit so it's cheap; runs in parallel and doesn't block anything.
-        const sessionsToLabel = sessionsWithCurrent.filter((s) => !s.key.endsWith(':main'));
-        if (sessionsToLabel.length > 0) {
-          void Promise.all(
-            sessionsToLabel.map(async (session) => {
-              try {
-                const r = await useGatewayStore.getState().rpc<Record<string, unknown>>(
-                  'chat.history',
-                  { sessionKey: session.key, limit: 1000 },
-                );
-                const msgs = Array.isArray(r.messages) ? r.messages as RawMessage[] : [];
-                const firstUser = msgs.find((m) => m.role === 'user');
-                const lastMsg = msgs[msgs.length - 1];
-                set((s) => {
-                  const next: Partial<typeof s> = {};
-                  if (firstUser) {
-                    const labelText = getMessageText(firstUser.content).trim();
-                    if (labelText) {
-                      const truncated = labelText.length > 50 ? `${labelText.slice(0, 50)}…` : labelText;
-                      const existing = (s.sessionLabels?.[session.key] || '').trim();
-                      // 已有别名（手动命名）时不覆盖
-                      if (!existing) {
-                        next.sessionLabels = { ...s.sessionLabels, [session.key]: truncated };
-                      }
-                    }
-                  }
-                  if (lastMsg?.timestamp) {
-                    next.sessionLastActivity = { ...s.sessionLastActivity, [session.key]: toMs(lastMsg.timestamp) };
-                  }
-                  return next;
-                });
-              } catch { /* ignore per-session errors */ }
-            }),
-          );
-        }
+        // Backfill missing session titles off the critical path. Older code
+        // fetched chat.history(limit=1000) for every session at once, which
+        // made opening the chat page slow and overloaded the Gateway on users
+        // with many sessions.
+        scheduleSessionLabelBackfill(sessionsWithCurrent);
       }
     } catch (err) {
       console.warn('Failed to load sessions:', err);
@@ -1653,20 +997,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ── Switch session ──
 
   switchSession: (key: string) => {
-    if (key === get().currentSessionKey) return;
+    const targetKey = canonicalizeSessionKey(key);
+    if (targetKey === get().currentSessionKey) return;
     flushPartialStreamingToMessages(get, set);
-    saveMsgCache(get().currentSessionKey, get().messages);
+    saveMsgCache(get().currentSessionKey, tagMessagesForSession(get().messages, get().currentSessionKey));
     // Cache-first: pre-populate with localStorage snapshot so the user sees
     // content instantly while the Gateway RPC runs in the background.
-    const cached = loadMsgCache(key);
+    const cached = tagMessagesForSession(loadMsgCache(targetKey), targetKey);
     set((s) => ({
-      ...buildSessionSwitchPatch(s, key),
+      ...buildSessionSwitchPatch(s, targetKey),
       // Override the empty messages from the patch with cached content.
       // If cache is empty the patch's `messages: []` stays (shows spinner).
       ...(cached.length > 0 ? { messages: cached, loading: false } : {}),
     }));
     // quiet=true when we already have cached content → silent background refresh
     get().loadHistory(cached.length > 0);
+    scheduleQueuedMessageDrain();
   },
 
   // ── Delete session ──
@@ -1679,6 +1025,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // newSession() design that avoids sessions.reset to preserve history.
 
   deleteSession: async (key: string) => {
+    const targetKey = canonicalizeSessionKey(key);
     // Soft-delete the session's JSONL transcript on disk.
     // The main process renames <suffix>.jsonl → <suffix>.deleted.jsonl so that
     // sessions.list skips it automatically.
@@ -1688,26 +1035,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
         error?: string;
       }>('/api/sessions/delete', {
         method: 'POST',
-        body: JSON.stringify({ sessionKey: key }),
+        body: JSON.stringify({ sessionKey: targetKey }),
       });
       if (!result.success) {
-        console.warn(`[deleteSession] IPC reported failure for ${key}:`, result.error);
+        console.warn(`[deleteSession] IPC reported failure for ${targetKey}:`, result.error);
       }
     } catch (err) {
-      console.warn(`[deleteSession] IPC call failed for ${key}:`, err);
+      console.warn(`[deleteSession] IPC call failed for ${targetKey}:`, err);
     }
 
     const { currentSessionKey, sessions } = get();
-    const remaining = sessions.filter((s) => s.key !== key);
+    const remaining = sessions.filter((s) => s.key !== targetKey);
+    removeMsgCache(targetKey);
+    _knownEmptySessions.add(targetKey);
+    _locallyCreatedEmptySessions.delete(targetKey);
 
-    if (currentSessionKey === key) {
+    if (currentSessionKey === targetKey) {
       // Switched away from deleted session — pick the first remaining or create new
       const next = remaining[0];
       set((s) => ({
         sessions: remaining,
-        sessionLabels: Object.fromEntries(Object.entries(s.sessionLabels).filter(([k]) => k !== key)),
-        favoriteSessionKeys: Object.fromEntries(Object.entries(s.favoriteSessionKeys).filter(([k]) => k !== key)),
-        sessionLastActivity: Object.fromEntries(Object.entries(s.sessionLastActivity).filter(([k]) => k !== key)),
+        sessionLabels: Object.fromEntries(Object.entries(s.sessionLabels).filter(([k]) => k !== targetKey)),
+        favoriteSessionKeys: Object.fromEntries(Object.entries(s.favoriteSessionKeys).filter(([k]) => k !== targetKey)),
+        sessionLastActivity: Object.fromEntries(Object.entries(s.sessionLastActivity).filter(([k]) => k !== targetKey)),
         messages: [],
         streamingText: '',
         streamingMessage: null,
@@ -1726,12 +1076,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } else {
       set((s) => ({
         sessions: remaining,
-        sessionLabels: Object.fromEntries(Object.entries(s.sessionLabels).filter(([k]) => k !== key)),
-        favoriteSessionKeys: Object.fromEntries(Object.entries(s.favoriteSessionKeys).filter(([k]) => k !== key)),
-        sessionLastActivity: Object.fromEntries(Object.entries(s.sessionLastActivity).filter(([k]) => k !== key)),
+        sessionLabels: Object.fromEntries(Object.entries(s.sessionLabels).filter(([k]) => k !== targetKey)),
+        favoriteSessionKeys: Object.fromEntries(Object.entries(s.favoriteSessionKeys).filter(([k]) => k !== targetKey)),
+        sessionLastActivity: Object.fromEntries(Object.entries(s.sessionLastActivity).filter(([k]) => k !== targetKey)),
       }));
     }
-    saveSessionFavorites(Object.fromEntries(Object.entries(get().favoriteSessionKeys).filter(([k]) => k !== key)));
+    saveSessionFavorites(Object.fromEntries(Object.entries(get().favoriteSessionKeys).filter(([k]) => k !== targetKey)));
   },
 
   // ── New session ──
@@ -1747,6 +1097,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ?? getCanonicalPrefixFromSessions(sessions)
       ?? DEFAULT_CANONICAL_PREFIX;
     const newKey = `${prefix}:session-${Date.now()}`;
+    _locallyCreatedEmptySessions.add(newKey);
+    _knownEmptySessions.delete(newKey);
     const newSessionEntry: ChatSession = { key: newKey, displayName: newKey };
     if (leavingEmpty && get().favoriteSessionKeys[currentSessionKey]) {
       saveSessionFavorites(clearSessionEntryFromMap(get().favoriteSessionKeys, currentSessionKey));
@@ -1787,7 +1139,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // This mirrors the "leavingEmpty" logic in switchSession so that creating
     // a new session and immediately navigating away doesn't leave a ghost entry
     // in the sidebar.
-    const isEmptyNonMain = !currentSessionKey.endsWith(':main') && messages.length === 0;
+    const isEmptyNonMain = _locallyCreatedEmptySessions.has(currentSessionKey)
+      && !currentSessionKey.endsWith(':main')
+      && messages.length === 0;
     if (!isEmptyNonMain) return;
     if (get().favoriteSessionKeys[currentSessionKey]) {
       saveSessionFavorites(clearSessionEntryFromMap(get().favoriteSessionKeys, currentSessionKey));
@@ -1804,6 +1158,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         Object.entries(s.sessionLastActivity).filter(([k]) => k !== currentSessionKey),
       ),
     }));
+    _locallyCreatedEmptySessions.delete(currentSessionKey);
   },
 
   // ── Load chat history ──
@@ -1811,7 +1166,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadHistory: async (quiet = false) => {
     const { currentSessionKey } = get();
     const requestSessionKey = currentSessionKey;
-    const requestId = beginHistoryRequest(requestSessionKey);
+    const existingHistoryRequest = historyRequests.getInFlight(requestSessionKey);
+    if (existingHistoryRequest) {
+      if (!quiet) {
+        const preCache = loadMsgCache(requestSessionKey);
+        if (preCache.length > 0) {
+          set({ messages: preCache, loading: false, error: null });
+        }
+      }
+      await existingHistoryRequest.catch(() => undefined);
+      return;
+    }
+    const requestId = historyRequests.begin(requestSessionKey);
+    let finishHistoryRequest: () => void = () => {};
+    const historyRequestPromise = new Promise<void>((resolve) => {
+      finishHistoryRequest = resolve;
+    });
+    historyRequests.setInFlight(requestSessionKey, historyRequestPromise);
     if (!quiet) {
       // Show cached content immediately (stale-while-revalidate): eliminates
       // the blank-screen period while the Gateway RPC is in flight.
@@ -1824,10 +1195,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     const applyLoadedMessages = (rawMessages: RawMessage[], thinkingLevel: string | null) => {
-      if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+      if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
       // Before filtering: attach images/files from tool_result messages to the next assistant message
       const messagesWithToolImages = enrichWithToolResultFiles(rawMessages);
-      const filteredMessages = messagesWithToolImages.filter((msg) => !isToolResultRole(msg.role));
+      const filteredMessages = filterVisibleHistoryMessages(messagesWithToolImages);
       // Restore file attachments for user/assistant messages (from cache + text patterns)
       const enrichedMessages = enrichWithCachedImages(filteredMessages);
 
@@ -1837,20 +1208,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
       let finalMessages = enrichedMessages;
       const stateBeforeMerge = get();
       const userMsgAt = stateBeforeMerge.lastUserMessageAt;
-      if (stateBeforeMerge.sending && userMsgAt) {
-        finalMessages = mergeOptimisticDuringSend(enrichedMessages, stateBeforeMerge.messages, userMsgAt);
+      if (stateBeforeMerge.currentSessionKey === requestSessionKey && stateBeforeMerge.sending && userMsgAt) {
+        finalMessages = mergeOptimisticDuringSend(enrichedMessages, stateBeforeMerge.messages, userMsgAt, requestSessionKey);
+      } else if (stateBeforeMerge.currentSessionKey === requestSessionKey && stateBeforeMerge.messages.length > 0) {
+        finalMessages = mergeLoadedHistoryWithVisibleMessages(enrichedMessages, stateBeforeMerge.messages, requestSessionKey);
+      } else if (finalMessages.length === 0) {
+        const previous = stateBeforeMerge.currentSessionKey === requestSessionKey ? stateBeforeMerge.messages : [];
+        const cached = loadMsgCache(requestSessionKey);
+        finalMessages = previous.length > 0 ? previous : cached;
       }
 
-      finalMessages = appendPreservedLocalPartials(finalMessages, get().messages);
+      const preservedSource = stateBeforeMerge.currentSessionKey === requestSessionKey
+        ? stateBeforeMerge.messages
+        : loadMsgCache(requestSessionKey);
+      finalMessages = appendPreservedLocalPartials(finalMessages, preservedSource, {
+        allow: Boolean(stateBeforeMerge.currentSessionKey === requestSessionKey && stateBeforeMerge.sending && userMsgAt),
+        afterMs: userMsgAt,
+      });
 
-      set({ messages: finalMessages, thinkingLevel, loading: false });
+      finalMessages = normalizeVisibleMessages(finalMessages);
+      finalMessages = tagMessagesForSession(finalMessages, requestSessionKey);
+      if (finalMessages.length > 0) {
+        rememberSessionHasMessages(requestSessionKey);
+      }
+      const isVisibleRequestSession = get().currentSessionKey === requestSessionKey;
+      if (isVisibleRequestSession) {
+        set({ messages: finalMessages, thinkingLevel, loading: false });
+      }
       saveMsgCache(requestSessionKey, finalMessages);
 
       // Extract first user message text as a session label for display in the toolbar.
       // Skip main sessions (key ends with ":main") — they rely on the Gateway-provided
       // displayName (e.g. the configured agent name "ClawX") instead.
-      const isMainSession = requestSessionKey.endsWith(':main');
-      if (!isMainSession) {
+      if (!isNamedAgentMainSession(requestSessionKey)) {
         const firstUserMsg = finalMessages.find((m) => m.role === 'user');
         if (firstUserMsg) {
           const labelText = getMessageText(firstUserMsg.content).trim();
@@ -1878,17 +1268,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       // Async: load missing image previews from disk (updates in background)
       loadMissingPreviews(finalMessages).then((updated) => {
-        if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+        if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
+        if (get().currentSessionKey !== requestSessionKey) return;
         if (updated) {
-          set({
-            messages: finalMessages.map(msg =>
-              msg._attachedFiles
-                ? { ...msg, _attachedFiles: msg._attachedFiles.map(f => ({ ...f })) }
-                : msg
-            ),
+          set((s) => {
+            if (s.currentSessionKey !== requestSessionKey) return {};
+            const merged = mergeLoadedHistoryWithVisibleMessages(finalMessages, s.messages, requestSessionKey);
+            return {
+              messages: merged.map(msg =>
+                msg._attachedFiles
+                  ? { ...msg, _attachedFiles: msg._attachedFiles.map(f => ({ ...f })) }
+                  : msg
+              ),
+            };
           });
         }
       });
+      if (!isVisibleRequestSession) return;
+
       const { pendingFinal, lastUserMessageAt, sending: isSendingNow } = get();
 
       // If we're sending but haven't received streaming events, check
@@ -1919,9 +1316,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           return isAfterUserMsg(msg);
         });
         if (recentAssistant) {
-          clearHistoryPoll();
+          clearHistoryPoll(requestSessionKey);
           _sendingSessionKey = null;
-          set({ sending: false, activeRunId: null, pendingFinal: false });
+          set({ sending: false, activeRunId: null, pendingFinal: false, activityLabel: null });
         }
       }
     };
@@ -1931,8 +1328,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         'chat.history',
         { sessionKey: requestSessionKey, limit: 200 },
       );
-      if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+      if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
       if (data) {
+        registerSessionAlias(data.sessionId, requestSessionKey, { overwrite: true });
         let rawMessages = Array.isArray(data.messages) ? data.messages as RawMessage[] : [];
         const thinkingLevel = data.thinkingLevel ? String(data.thinkingLevel) : null;
         if (rawMessages.length === 0 && isCronSessionKey(requestSessionKey)) {
@@ -1941,9 +1339,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (rawMessages.length === 0) {
           const cached = loadMsgCache(requestSessionKey);
           const current = get().currentSessionKey === requestSessionKey ? get().messages : [];
-          const fallback = cached.length > 0 ? cached : current;
+          const fallback = current.length > 0 ? current : cached;
           if (fallback.length > 0) {
-            set({ messages: fallback, thinkingLevel, loading: false });
+            rememberSessionHasMessages(requestSessionKey);
+            if (get().currentSessionKey === requestSessionKey) {
+              set({ messages: fallback, thinkingLevel, loading: false });
+            }
             return;
           }
         }
@@ -1951,7 +1352,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         applyLoadedMessages(rawMessages, thinkingLevel);
       } else {
         const fallbackMessages = await loadCronFallbackMessages(requestSessionKey, 200);
-        if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+        if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
         if (fallbackMessages.length > 0) {
           applyLoadedMessages(fallbackMessages, null);
         } else {
@@ -1962,14 +1363,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
             set({ loading: false });
           } else {
             const cached = loadMsgCache(requestSessionKey);
-            set({ messages: cached, loading: false });
+            if (state.currentSessionKey === requestSessionKey) {
+              const fallback = state.messages.length > 0 ? state.messages : cached;
+              set({ messages: fallback, loading: false });
+            }
           }
         }
       }
     } catch (err) {
       console.warn('Failed to load chat history:', err);
       const fallbackMessages = await loadCronFallbackMessages(requestSessionKey, 200);
-      if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+      if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
       if (fallbackMessages.length > 0) {
         applyLoadedMessages(fallbackMessages, null);
       } else {
@@ -1978,16 +1382,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set({ loading: false });
         } else {
           const cached = loadMsgCache(requestSessionKey);
-          set({ messages: cached, loading: false });
+          if (state.currentSessionKey === requestSessionKey) {
+            const fallback = state.messages.length > 0 ? state.messages : cached;
+            set({ messages: fallback, loading: false });
+          }
         }
       }
+    } finally {
+      historyRequests.clearInFlight(requestSessionKey, historyRequestPromise);
+      finishHistoryRequest();
     }
   },
 
   loadHistoryWithOptions: async (options?: { beforeTs?: number; limit?: number }) => {
     const { currentSessionKey } = get();
     const requestSessionKey = currentSessionKey;
-    const requestId = beginHistoryRequest(requestSessionKey);
+    const requestId = historyRequests.begin(requestSessionKey);
     set({ loading: true, error: null });
 
     const limit = options?.limit ?? 500;
@@ -1997,29 +1407,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (beforeTs != null) params.beforeTs = beforeTs;
 
     const applyLoadedMessages = (rawMessages: RawMessage[], thinkingLevel: string | null) => {
-      if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+      if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
       let toApply = rawMessages;
       if (beforeTs != null) {
         toApply = rawMessages.filter((m) => !m.timestamp || toMs(m.timestamp) <= beforeTs);
       }
       const messagesWithToolImages = enrichWithToolResultFiles(toApply);
-      const filteredMessages = messagesWithToolImages.filter((msg) => !isToolResultRole(msg.role));
+      const filteredMessages = filterVisibleHistoryMessages(messagesWithToolImages);
       const enrichedMessages = enrichWithCachedImages(filteredMessages);
 
       let finalMessages = enrichedMessages;
       const stateBeforeMerge = get();
       const userMsgAt = stateBeforeMerge.lastUserMessageAt;
-      if (stateBeforeMerge.sending && userMsgAt) {
-        finalMessages = mergeOptimisticDuringSend(enrichedMessages, stateBeforeMerge.messages, userMsgAt);
+      if (stateBeforeMerge.currentSessionKey === requestSessionKey && stateBeforeMerge.sending && userMsgAt) {
+        finalMessages = mergeOptimisticDuringSend(enrichedMessages, stateBeforeMerge.messages, userMsgAt, requestSessionKey);
+      } else if (stateBeforeMerge.currentSessionKey === requestSessionKey && stateBeforeMerge.messages.length > 0) {
+        finalMessages = mergeLoadedHistoryWithVisibleMessages(enrichedMessages, stateBeforeMerge.messages, requestSessionKey);
+      } else if (finalMessages.length === 0) {
+        const previous = stateBeforeMerge.currentSessionKey === requestSessionKey ? stateBeforeMerge.messages : [];
+        const cached = loadMsgCache(requestSessionKey);
+        finalMessages = previous.length > 0 ? previous : cached;
       }
 
-      finalMessages = appendPreservedLocalPartials(finalMessages, get().messages);
+      const preservedSource = stateBeforeMerge.currentSessionKey === requestSessionKey
+        ? stateBeforeMerge.messages
+        : loadMsgCache(requestSessionKey);
+      finalMessages = appendPreservedLocalPartials(finalMessages, preservedSource, {
+        allow: Boolean(stateBeforeMerge.currentSessionKey === requestSessionKey && stateBeforeMerge.sending && userMsgAt),
+        afterMs: userMsgAt,
+      });
 
-      set({ messages: finalMessages, thinkingLevel, loading: false });
+      finalMessages = normalizeVisibleMessages(finalMessages);
+      finalMessages = tagMessagesForSession(finalMessages, requestSessionKey);
+      if (finalMessages.length > 0) {
+        rememberSessionHasMessages(requestSessionKey);
+      }
+      const isVisibleRequestSession = get().currentSessionKey === requestSessionKey;
+      if (isVisibleRequestSession) {
+        set({ messages: finalMessages, thinkingLevel, loading: false });
+      }
       saveMsgCache(requestSessionKey, finalMessages);
 
-      const isMainSession = requestSessionKey.endsWith(':main');
-      if (!isMainSession) {
+      if (!isNamedAgentMainSession(requestSessionKey)) {
         const firstUserMsg = finalMessages.find((m) => m.role === 'user');
         if (firstUserMsg) {
           const labelText = getMessageText(firstUserMsg.content).trim();
@@ -2045,12 +1474,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       loadMissingPreviews(finalMessages).then((updated) => {
-        if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+        if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
+        if (get().currentSessionKey !== requestSessionKey) return;
         if (updated) {
-          set({
-            messages: finalMessages.map((msg) =>
-              msg._attachedFiles ? { ...msg, _attachedFiles: msg._attachedFiles.map((f) => ({ ...f })) } : msg,
-            ),
+          set((s) => {
+            if (s.currentSessionKey !== requestSessionKey) return {};
+            const merged = mergeLoadedHistoryWithVisibleMessages(finalMessages, s.messages, requestSessionKey);
+            return {
+              messages: merged.map((msg) =>
+                msg._attachedFiles ? { ...msg, _attachedFiles: msg._attachedFiles.map((f) => ({ ...f })) } : msg,
+              ),
+            };
           });
         }
       });
@@ -2058,8 +1492,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     try {
       const data = await useGatewayStore.getState().rpc<Record<string, unknown>>('chat.history', params);
-      if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+      if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
       if (data) {
+        registerSessionAlias(data.sessionId, requestSessionKey, { overwrite: true });
         let rawMessages = Array.isArray(data.messages) ? data.messages as RawMessage[] : [];
         const thinkingLevel = data.thinkingLevel ? String(data.thinkingLevel) : null;
         if (rawMessages.length === 0 && isCronSessionKey(requestSessionKey)) {
@@ -2068,16 +1503,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (rawMessages.length === 0) {
           const cached = loadMsgCache(requestSessionKey);
           const current = get().currentSessionKey === requestSessionKey ? get().messages : [];
-          const fallback = cached.length > 0 ? cached : current;
+          const fallback = current.length > 0 ? current : cached;
           if (fallback.length > 0) {
-            set({ messages: fallback, thinkingLevel, loading: false });
+            rememberSessionHasMessages(requestSessionKey);
+            if (get().currentSessionKey === requestSessionKey) {
+              set({ messages: fallback, thinkingLevel, loading: false });
+            }
             return;
           }
         }
         applyLoadedMessages(rawMessages, thinkingLevel);
       } else {
         const fallbackMessages = await loadCronFallbackMessages(requestSessionKey, limit);
-        if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+        if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
         if (fallbackMessages.length > 0) {
           applyLoadedMessages(fallbackMessages, null);
         } else {
@@ -2086,14 +1524,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
             set({ loading: false });
           } else {
             const cached = loadMsgCache(requestSessionKey);
-            set({ messages: cached, loading: false });
+            if (state.currentSessionKey === requestSessionKey) {
+              const fallback = state.messages.length > 0 ? state.messages : cached;
+              set({ messages: fallback, loading: false });
+            }
           }
         }
       }
     } catch (err) {
       console.warn('Failed to load chat history with options:', err);
       const fallbackMessages = await loadCronFallbackMessages(requestSessionKey, limit);
-      if (!isHistoryRequestCurrent(requestSessionKey, requestId)) return;
+      if (!historyRequests.isLatest(requestSessionKey, requestId)) return;
       if (fallbackMessages.length > 0) {
         applyLoadedMessages(fallbackMessages, null);
       } else {
@@ -2102,7 +1543,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set({ loading: false });
         } else {
           const cached = loadMsgCache(requestSessionKey);
-          set({ messages: cached, loading: false });
+          if (state.currentSessionKey === requestSessionKey) {
+            const fallback = state.messages.length > 0 ? state.messages : cached;
+            set({ messages: fallback, loading: false });
+          }
         }
       }
     }
@@ -2114,15 +1558,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
     text: string,
     attachments?: Array<{ fileName: string; mimeType: string; fileSize: number; stagedPath: string; preview: string | null }>,
     targetAgentId?: string | null,
+    forcedSessionKey?: string | null,
   ) => {
     const trimmed = text.trim();
     if (!trimmed && (!attachments || attachments.length === 0)) return;
 
-    const targetSessionKey = resolveMainSessionKeyForAgent(targetAgentId) ?? get().currentSessionKey;
+    const targetSessionKey = forcedSessionKey
+      || resolveMainSessionKeyForAgent(targetAgentId)
+      || get().currentSessionKey;
+    const isBackgroundSend = Boolean(forcedSessionKey && targetSessionKey !== get().currentSessionKey);
+    _locallyCreatedEmptySessions.delete(targetSessionKey);
+    _knownEmptySessions.delete(targetSessionKey);
 
-    if (targetSessionKey !== get().currentSessionKey) {
+    const hasActiveRunForTarget = inFlightRunBySession.has(targetSessionKey);
+    if (hasActiveRunForTarget) {
+      const queued: QueuedChatMessage = {
+        id: crypto.randomUUID(),
+        sessionKey: targetSessionKey,
+        text: trimmed,
+        attachments,
+        targetAgentId,
+        createdAt: Date.now(),
+      };
+      set((s) => ({
+        messageQueue: [...s.messageQueue, queued],
+        activityLabel: 'activityQueued',
+        error: null,
+      }));
+      return;
+    }
+
+    if (targetSessionKey !== get().currentSessionKey && !isBackgroundSend) {
       flushPartialStreamingToMessages(get, set);
-      saveMsgCache(get().currentSessionKey, get().messages);
+      saveMsgCache(get().currentSessionKey, tagMessagesForSession(get().messages, get().currentSessionKey));
       set((s) => buildSessionSwitchPatch(s, targetSessionKey));
       await get().loadHistory(true);
     }
@@ -2137,6 +1605,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       content: trimmed || (attachments?.length ? '(file attached)' : ''),
       timestamp: nowMs / 1000,
       id: crypto.randomUUID(),
+      _sessionKey: currentSessionKey,
       _attachedFiles: attachments?.map(a => ({
         fileName: a.fileName,
         mimeType: a.mimeType,
@@ -2145,23 +1614,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
         filePath: a.stagedPath,
       })),
     };
-    set((s) => ({
-      messages: [...s.messages, userMsg],
-      sending: true,
-      error: null,
-      streamingText: '',
-      streamingMessage: null,
-      streamingTools: [],
-      pendingFinal: false,
-      lastUserMessageAt: nowMs,
-    }));
+    if (isBackgroundSend) {
+      const cachedMessages = loadMsgCache(currentSessionKey);
+      saveMsgCache(currentSessionKey, tagMessagesForSession(normalizeVisibleMessages([...cachedMessages, userMsg]), currentSessionKey));
+      set((s) => ({
+        error: null,
+        sessionLastActivity: { ...s.sessionLastActivity, [currentSessionKey]: nowMs },
+      }));
+    } else {
+      set((s) => ({
+        messages: normalizeVisibleMessages([...s.messages, userMsg]),
+        sending: true,
+        error: null,
+        streamingText: '',
+        streamingMessage: null,
+        streamingTools: [],
+        pendingFinal: false,
+        lastUserMessageAt: nowMs,
+        activityLabel: 'activityPlanning',
+      }));
+    }
     trackInFlightRun(currentSessionKey, null, nowMs);
-    saveMsgCache(currentSessionKey, get().messages);
+    updateRunMonitor(currentSessionKey, {
+      runId: null,
+      status: 'running',
+      lastEventLabel: 'activityPlanning',
+      reset: true,
+    });
+    if (!isBackgroundSend) saveMsgCache(currentSessionKey, tagMessagesForSession(get().messages, currentSessionKey));
 
     // Update session label with first user message text as soon as it's sent
     const { sessionLabels, messages } = get();
-    const isFirstMessage = !messages.slice(0, -1).some((m) => m.role === 'user');
-    if (!currentSessionKey.endsWith(':main') && isFirstMessage && !sessionLabels[currentSessionKey] && trimmed) {
+    const sessionMessagesForLabel = isBackgroundSend ? loadMsgCache(currentSessionKey) : messages;
+    const isFirstMessage = !sessionMessagesForLabel.slice(0, -1).some((m) => m.role === 'user');
+    if (!isNamedAgentMainSession(currentSessionKey) && isFirstMessage && !sessionLabels[currentSessionKey] && trimmed) {
       const truncated = trimmed.length > 50 ? `${trimmed.slice(0, 50)}…` : trimmed;
       set((s) => ({ sessionLabels: { ...s.sessionLabels, [currentSessionKey]: truncated } }));
     }
@@ -2172,61 +1658,102 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Start the history poll and safety timeout IMMEDIATELY (before the
     // RPC await) because the gateway's chat.send RPC may block until the
     // entire agentic conversation finishes — the poll must run in parallel.
-    _lastChatEventAt = Date.now();
-    clearHistoryPoll();
-    clearErrorRecoveryTimer();
+    markChatEvent(currentSessionKey);
+    clearHistoryPoll(currentSessionKey);
+    clearErrorRecoveryTimer(currentSessionKey);
 
     const POLL_START_DELAY = 1_000;
     const POLL_INTERVAL = 2_500;
     const STREAM_STALE_MS = 25_000;
     const pollHistory = () => {
       const state = get();
-      if (!_inFlightRunBySession.has(currentSessionKey)) { clearHistoryPoll(); return; }
+      if (!inFlightRunBySession.has(currentSessionKey)) { clearHistoryPoll(currentSessionKey); return; }
       const isVisibleSession = state.currentSessionKey === currentSessionKey;
 
       // 正常流式过程中不打断；但若长时间没有新事件，认为流式中断，改为主动拉历史
       if (isVisibleSession && state.streamingMessage) {
-        const idleMs = Date.now() - _lastChatEventAt;
+        const idleMs = Date.now() - getLastChatEventAt(currentSessionKey);
         if (idleMs < STREAM_STALE_MS) {
-          _historyPollTimer = setTimeout(pollHistory, POLL_INTERVAL);
+          scheduleHistoryPoll(currentSessionKey, pollHistory, POLL_INTERVAL);
           return;
         }
         console.warn(`[chat.poll] streaming stale for ${idleMs}ms, fallback to history refresh`);
         flushPartialStreamingToMessages(get, set);
-        set({ streamingMessage: null, streamingText: '' });
+        if (get().currentSessionKey === currentSessionKey) {
+          set({ streamingMessage: null, streamingText: '' });
+        }
+        updateRunMonitor(currentSessionKey, {
+          status: 'stale',
+          lastEventLabel: 'activityStreamStale',
+          touch: false,
+        });
       }
 
+      updateRunMonitor(currentSessionKey, {
+        lastEventLabel: isVisibleSession ? 'activityPollingHistory' : 'activityPollingBackground',
+        touch: false,
+      });
       if (isVisibleSession) {
         state.loadHistory(true);
       } else {
         void refreshSessionHistoryCache(currentSessionKey);
       }
-      _historyPollTimer = setTimeout(pollHistory, POLL_INTERVAL);
+      scheduleHistoryPoll(currentSessionKey, pollHistory, POLL_INTERVAL);
     };
-    _historyPollTimer = setTimeout(pollHistory, POLL_START_DELAY);
+    scheduleHistoryPoll(currentSessionKey, pollHistory, POLL_START_DELAY);
 
     const SAFETY_TIMEOUT_MS = 90_000;
     const checkStuck = () => {
       const state = get();
-      if (!_inFlightRunBySession.has(currentSessionKey)) return;
+      const inFlight = inFlightRunBySession.get(currentSessionKey);
+      if (!inFlight) return;
       const isVisibleSession = state.currentSessionKey === currentSessionKey;
+      const relevantMessages = isVisibleSession
+        ? state.messages
+        : loadMsgCache(currentSessionKey);
+      if (hasAssistantMessageAfter(relevantMessages, inFlight.lastUserMessageAt)) {
+        clearHistoryPoll(currentSessionKey);
+        finishRunMonitor(currentSessionKey, 'completed');
+        finishInFlightRun(currentSessionKey, inFlight.runId);
+        if (isVisibleSession) {
+          set({
+            sending: false,
+            activeRunId: null,
+            pendingFinal: false,
+            lastUserMessageAt: null,
+            activityLabel: null,
+          });
+        }
+        return;
+      }
       if (isVisibleSession && (state.streamingMessage || state.streamingText)) return;
       if (isVisibleSession && state.pendingFinal) {
         setTimeout(checkStuck, 10_000);
         return;
       }
-      if (Date.now() - _lastChatEventAt < SAFETY_TIMEOUT_MS) {
+      if (Date.now() - getLastChatEventAt(currentSessionKey) < SAFETY_TIMEOUT_MS) {
         setTimeout(checkStuck, 10_000);
         return;
       }
-      clearHistoryPoll();
-      finishInFlightRun(currentSessionKey, _inFlightRunBySession.get(currentSessionKey)?.runId);
+      clearHistoryPoll(currentSessionKey);
+      finishInFlightRun(currentSessionKey, inFlightRunBySession.get(currentSessionKey)?.runId);
       if (get().currentSessionKey === currentSessionKey) {
+        const session = get().sessions.find((item) => item.key === currentSessionKey);
+        const modelContext = readSessionModel(session);
+        const errorMessage = isOpenAiCodexModelContext(modelContext.model, modelContext.provider)
+          ? formatOpenAiCodexNetworkFailure(
+            `OpenClaw did not receive a model response within ${Math.round(SAFETY_TIMEOUT_MS / 1000)}s. `
+            + `Current model: ${formatModelRefForNotice(modelContext.model, modelContext.provider)}.`,
+          )
+          : 'No response received from the model. The provider may be unavailable or the API key may have insufficient quota. Please check your provider settings.';
+        appendLocalSystemNotice(currentSessionKey, errorMessage);
+        finishRunMonitor(currentSessionKey, 'failed');
         set({
-          error: 'No response received from the model. The provider may be unavailable or the API key may have insufficient quota. Please check your provider settings.',
+          error: errorMessage,
           sending: false,
           activeRunId: null,
           lastUserMessageAt: null,
+          activityLabel: null,
         });
       }
     };
@@ -2249,24 +1776,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Cache image attachments BEFORE the IPC call to avoid race condition:
       // history may reload (via Gateway event) before the RPC returns.
       // Keyed by staged file path which appears in [media attached: <path> ...].
-      if (hasMedia && attachments) {
-        for (const a of attachments) {
-          _imageCache.set(a.stagedPath, {
-            fileName: a.fileName,
-            mimeType: a.mimeType,
-            fileSize: a.fileSize,
-            preview: a.preview,
-          });
-        }
-        saveImageCache(_imageCache);
-      }
+      if (hasMedia) cacheOutgoingAttachments(attachments);
 
       let result: { success: boolean; result?: { runId?: string }; error?: string };
 
       // Longer timeout for chat sends to tolerate high-latency networks (avoids connect error)
       const CHAT_SEND_TIMEOUT_MS = 120_000;
 
-      await ensureDeepSeekV4ThinkingOffBeforeSend(currentSessionKey);
+      await prepareSessionBeforeSend(currentSessionKey);
 
       if (hasMedia) {
         // 将媒体附件信息以 [media attached: ...] 标记嵌入消息文本，通过 chat.send RPC 发送
@@ -2291,17 +1808,96 @@ export const useChatStore = create<ChatState>((set, get) => ({
       console.log(`[sendMessage] RPC result: success=${result.success}, runId=${result.result?.runId || 'none'}`);
 
       if (!result.success) {
-        clearHistoryPoll();
+        clearHistoryPoll(currentSessionKey);
+        finishRunMonitor(currentSessionKey, 'failed');
         finishInFlightRun(currentSessionKey, null);
-        set({ error: result.error || 'Failed to send message', sending: false });
+        const message = result.error || 'Failed to send message';
+        appendLocalSystemNotice(currentSessionKey, message);
+        if (get().currentSessionKey === currentSessionKey) {
+          set({ error: message, sending: false, activityLabel: null });
+        }
       } else if (result.result?.runId) {
         trackInFlightRun(currentSessionKey, result.result.runId, nowMs);
+        updateRunMonitor(currentSessionKey, {
+          runId: result.result.runId,
+          status: 'running',
+          lastEventLabel: 'activityStarted',
+          touch: true,
+        });
         if (get().currentSessionKey === currentSessionKey) {
           set({ activeRunId: result.result.runId });
         }
       }
     } catch (err) {
       const errText = String(err || '');
+      if (isOpenAiCodexRegionAuthFailure(errText)) {
+        const message = formatOpenAiCodexRegionAuthFailure(errText);
+        appendLocalSystemNotice(currentSessionKey, message);
+        clearHistoryPoll(currentSessionKey);
+        clearErrorRecoveryTimer(currentSessionKey);
+        finishRunMonitor(currentSessionKey, 'failed');
+        finishInFlightRun(currentSessionKey, inFlightRunBySession.get(currentSessionKey)?.runId);
+        if (get().currentSessionKey === currentSessionKey) {
+          set({
+            error: message,
+            sending: false,
+            activeRunId: null,
+            streamingText: '',
+            streamingMessage: null,
+            streamingTools: [],
+            pendingFinal: false,
+            lastUserMessageAt: null,
+            activityLabel: null,
+            pendingToolImages: [],
+          });
+        }
+        return;
+      }
+      if (isOpenAiCodexNetworkFailure(errText)) {
+        const inFlight = inFlightRunBySession.get(currentSessionKey);
+        if (hasAssistantMessageAfter(get().messages, inFlight?.lastUserMessageAt)) {
+          clearHistoryPoll(currentSessionKey);
+          clearErrorRecoveryTimer(currentSessionKey);
+          finishRunMonitor(currentSessionKey, 'completed');
+          finishInFlightRun(currentSessionKey, inFlight?.runId);
+          if (get().currentSessionKey === currentSessionKey) {
+            set({
+              error: null,
+              sending: false,
+              activeRunId: null,
+              streamingText: '',
+              streamingMessage: null,
+              streamingTools: [],
+              pendingFinal: false,
+              lastUserMessageAt: null,
+              activityLabel: null,
+              pendingToolImages: [],
+            });
+          }
+          return;
+        }
+        const message = formatOpenAiCodexNetworkFailure(errText);
+        appendLocalSystemNotice(currentSessionKey, message);
+        clearHistoryPoll(currentSessionKey);
+        clearErrorRecoveryTimer(currentSessionKey);
+        finishRunMonitor(currentSessionKey, 'failed');
+        finishInFlightRun(currentSessionKey, inFlightRunBySession.get(currentSessionKey)?.runId);
+        if (get().currentSessionKey === currentSessionKey) {
+          set({
+            error: message,
+            sending: false,
+            activeRunId: null,
+            streamingText: '',
+            streamingMessage: null,
+            streamingTools: [],
+            pendingFinal: false,
+            lastUserMessageAt: null,
+            activityLabel: null,
+            pendingToolImages: [],
+          });
+        }
+        return;
+      }
       if (isDeepSeekReasoningReplayError(errText)) {
         try {
           await useGatewayStore.getState().rpc(
@@ -2309,7 +1905,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             { key: currentSessionKey, thinkingLevel: 'off' },
             15_000,
           );
-          set({ thinkingLevel: 'off' });
+          if (get().currentSessionKey === currentSessionKey) {
+            set({ thinkingLevel: 'off' });
+          }
           const retryThinkOff = await useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', {
             sessionKey: currentSessionKey,
             message: trimmed,
@@ -2319,7 +1917,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (retryThinkOff?.runId) {
             _sendingSessionKey = currentSessionKey;
             trackInFlightRun(currentSessionKey, retryThinkOff.runId, nowMs);
-            set({ activeRunId: retryThinkOff.runId, error: null, sending: true });
+            updateRunMonitor(currentSessionKey, {
+              runId: retryThinkOff.runId,
+              status: 'running',
+              lastEventLabel: 'activityRecovering',
+              touch: true,
+            });
+            if (get().currentSessionKey === currentSessionKey) {
+              set({ activeRunId: retryThinkOff.runId, error: null, sending: true });
+            }
             return;
           }
         } catch {
@@ -2336,67 +1942,65 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (retryResult?.runId) {
             _sendingSessionKey = currentSessionKey;
             trackInFlightRun(currentSessionKey, retryResult.runId, nowMs);
-            set({ activeRunId: retryResult.runId, error: null, sending: true });
+            updateRunMonitor(currentSessionKey, {
+              runId: retryResult.runId,
+              status: 'running',
+              lastEventLabel: 'activityRecovering',
+              touch: true,
+            });
+            if (get().currentSessionKey === currentSessionKey) {
+              set({ activeRunId: retryResult.runId, error: null, sending: true });
+            }
             return;
           }
         } catch {
           // fall through to normal error path
         }
-        try {
-          const { sessions } = get();
-          const prefix = getCanonicalPrefixFromSessionKey(currentSessionKey)
-            ?? getCanonicalPrefixFromSessions(sessions)
-            ?? DEFAULT_CANONICAL_PREFIX;
-          const recoveryKey = `${prefix}:session-${Date.now()}-recovery`;
-          const recoveryEntry: ChatSession = { key: recoveryKey, displayName: recoveryKey };
-          set((s) => ({
-            currentSessionKey: recoveryKey,
-            currentAgentId: getAgentIdFromSessionKey(recoveryKey),
-            sessions: [...s.sessions, recoveryEntry],
-            messages: [userMsg],
-            sending: true,
-            error: null,
-            streamingText: '',
-            streamingMessage: null,
-            streamingTools: [],
-            pendingFinal: false,
-            lastUserMessageAt: Date.now(),
-            pendingToolImages: [],
-          }));
-          const freshResult = await useGatewayStore.getState().rpc<{ runId?: string }>('chat.send', {
-            sessionKey: recoveryKey,
-            message: trimmed,
-            deliver: false,
-            idempotencyKey: `${Date.now()}-recovery`,
-          }, 120_000);
-          if (freshResult?.runId) {
-            _sendingSessionKey = recoveryKey;
-            trackInFlightRun(recoveryKey, freshResult.runId, Date.now());
-            set({ activeRunId: freshResult.runId, error: null, sending: true });
-            return;
-          }
-        } catch {
-          // continue to standard error reporting
-        }
       }
-      clearHistoryPoll();
-      finishInFlightRun(currentSessionKey, _inFlightRunBySession.get(currentSessionKey)?.runId);
-      set({
-        error: formatDeepSeekReasoningReplayError(errText),
-        sending: false,
-      });
+      clearHistoryPoll(currentSessionKey);
+      finishRunMonitor(currentSessionKey, 'failed');
+      finishInFlightRun(currentSessionKey, inFlightRunBySession.get(currentSessionKey)?.runId);
+      appendLocalSystemNotice(currentSessionKey, formatDeepSeekReasoningReplayError(errText));
+      if (get().currentSessionKey === currentSessionKey) {
+        set({
+          error: formatDeepSeekReasoningReplayError(errText),
+          sending: false,
+          activityLabel: null,
+        });
+      }
     }
+  },
+
+  drainMessageQueue: async () => {
+    const state = get();
+    if (state.messageQueue.length === 0) return;
+
+    const visibleSessionKey = state.currentSessionKey;
+    const nextIndex = state.messageQueue.findIndex((item) => {
+      const queuedSessionKey = item.sessionKey || visibleSessionKey;
+      return !inFlightRunBySession.has(queuedSessionKey);
+    });
+    if (nextIndex < 0) return;
+
+    const next = state.messageQueue[nextIndex];
+    const nextSessionKey = next.sessionKey || visibleSessionKey;
+    set((s) => ({
+      messageQueue: s.messageQueue.filter((item) => item.id !== next.id),
+      activityLabel: s.messageQueue.length > 1 ? 'activitySendingQueued' : null,
+    }));
+    await get().sendMessage(next.text, next.attachments, next.targetAgentId, nextSessionKey);
   },
 
   // ── Abort active run ──
 
   abortRun: async () => {
-    clearHistoryPoll();
-    clearErrorRecoveryTimer();
-    flushPartialStreamingToMessages(get, set);
     const { currentSessionKey, activeRunId } = get();
+    clearHistoryPoll(currentSessionKey);
+    clearErrorRecoveryTimer(currentSessionKey);
+    flushPartialStreamingToMessages(get, set);
+    finishRunMonitor(currentSessionKey, 'aborted');
     finishInFlightRun(currentSessionKey, activeRunId);
-    set({ sending: false, streamingText: '', streamingMessage: null, pendingFinal: false, lastUserMessageAt: null, pendingToolImages: [] });
+    set({ sending: false, streamingText: '', streamingMessage: null, pendingFinal: false, lastUserMessageAt: null, pendingToolImages: [], activityLabel: null });
     set({ streamingTools: [] });
 
     try {
@@ -2416,7 +2020,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   handleChatEvent: (event: Record<string, unknown>) => {
     const runId = String(event.runId || '');
     const eventState = String(event.state || '');
-    const eventSessionKey = event.sessionKey != null ? String(event.sessionKey) : null;
+    const eventSessionKey = event.sessionKey != null ? canonicalizeSessionKey(event.sessionKey) : null;
     const { activeRunId, currentSessionKey, sending } = get();
 
     // Defensive: if state is missing but we have a message, try to infer state.
@@ -2431,27 +2035,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
 
-    const mappedSessionKey = runId ? _sessionKeyByRunId.get(runId) : undefined;
-    const targetSessionKey = eventSessionKey ?? mappedSessionKey ?? _sendingSessionKey ?? currentSessionKey;
+    const targetSessionKey = resolveEventTargetSessionKey({
+      eventSessionKey,
+      runId,
+      currentSessionKey,
+      activeRunId,
+      sendingSessionKey: _sendingSessionKey,
+      inFlightRunBySession: inFlightRunBySession,
+      sessionKeyByRunId: sessionKeyByRunId,
+    });
+    // Ambiguous event (no session key and no run mapping) must not be attached
+    // to whichever conversation happens to be visible. Dropping it is safer
+    // than corrupting another session's transcript.
+    if (!targetSessionKey) return;
 
-    if (eventSessionKey && runId) {
-      trackInFlightRun(eventSessionKey, runId);
-    }
-
-    // Ambiguous event (no session key) must be tied to a known run/session.
-    // Otherwise it can bleed into whichever conversation is currently visible.
-    if (eventSessionKey == null) {
-      if (!runId) return;
-      if (!mappedSessionKey && (!activeRunId || runId !== activeRunId)) return;
+    if (runId) {
+      trackInFlightRun(targetSessionKey, runId);
     }
 
     if (targetSessionKey !== currentSessionKey) {
-      _lastChatEventAt = Date.now();
+      markChatEvent(targetSessionKey);
       handleBackgroundChatEvent(targetSessionKey, runId, resolvedState, event);
       return;
     }
 
-    const currentInFlight = _inFlightRunBySession.get(currentSessionKey);
+    const currentInFlight = inFlightRunBySession.get(currentSessionKey);
     if (
       currentInFlight
       && runId
@@ -2462,11 +2070,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
-    // Only process events for the visible session's active run. Events mapped
-    // to other sessions were handled above and must not mutate this view.
-    if (activeRunId && runId && runId !== activeRunId) return;
+    // Only reject events that are explicitly mapped to another session. Some
+    // providers emit recovery / child-run events with a new runId for the same
+    // conversation; dropping those events leaves the UI stuck or missing the
+    // final assistant message.
+    if (activeRunId && runId && runId !== activeRunId) {
+      const mappedSessionForRun = sessionKeyByRunId.get(runId);
+      if (mappedSessionForRun && mappedSessionForRun !== currentSessionKey) return;
+    }
 
-    _lastChatEventAt = Date.now();
+    markChatEvent(currentSessionKey);
+    updateRunMonitor(currentSessionKey, {
+      runId: runId || null,
+      status: resolvedState === 'error'
+        ? 'failed'
+        : resolvedState === 'aborted'
+          ? 'aborted'
+          : 'running',
+      lastEventLabel: resolvedState === 'delta'
+        ? 'activityGenerating'
+        : resolvedState === 'final'
+          ? 'activityFinalizing'
+          : resolvedState === 'error'
+            ? 'activityRecovering'
+            : resolvedState === 'aborted'
+              ? 'activityAborted'
+              : 'activityStarted',
+      touch: true,
+    });
 
     // Only pause the history poll when we receive actual streaming data.
     // The gateway sends "agent" events with { phase, startedAt } that carry
@@ -2475,7 +2106,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const hasUsefulData = resolvedState === 'delta' || resolvedState === 'final'
       || resolvedState === 'error' || resolvedState === 'aborted';
     if (hasUsefulData) {
-      clearHistoryPoll();
+      // Keep the history poll alive during delta streaming. If the stream
+      // later stalls, the poll loop detects the idle period and reloads
+      // authoritative history instead of leaving the UI stuck forever.
+      if (resolvedState !== 'delta') {
+        clearHistoryPoll(currentSessionKey);
+      }
       // Adopt run started from another client (e.g. console at 127.0.0.1:18789):
       // show loading/streaming in the app when this session has an active run.
       const { sending } = get();
@@ -2494,18 +2130,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
           trackInFlightRun(currentSessionKey, runId);
           set({ sending: true, activeRunId: runId, error: null });
         }
+        set({ activityLabel: 'activityStarted' });
         break;
       }
       case 'delta': {
         // If we're receiving new deltas, the Gateway has recovered from any
         // prior error — cancel the error finalization timer and clear the
         // stale error banner so the user sees the live stream again.
-        if (_errorRecoveryTimer) {
-          clearErrorRecoveryTimer();
+        if (hasErrorRecoveryTimer(currentSessionKey)) {
+          clearErrorRecoveryTimer(currentSessionKey);
           set({ error: null });
         }
         const updates = collectToolUpdates(event.message, resolvedState);
+        if (updates.length > 0) {
+          updateRunMonitor(currentSessionKey, {
+            runId: runId || null,
+            status: 'running',
+            lastEventLabel: `activityTool:${updates[updates.length - 1]?.name || 'tool'}`,
+            touch: true,
+          });
+        }
         set((s) => ({
+          activityLabel: updates.length > 0
+            ? `activityTool:${updates[updates.length - 1]?.name || 'tool'}`
+            : 'activityGenerating',
           streamingMessage: (() => {
             if (event.message && typeof event.message === 'object') {
               const msgRole = (event.message as RawMessage).role;
@@ -2518,11 +2166,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         break;
       }
       case 'final': {
-        clearErrorRecoveryTimer();
+        clearErrorRecoveryTimer(currentSessionKey);
         if (get().error) set({ error: null });
         // Message complete - add to history and clear streaming
         const finalMsg = event.message as RawMessage | undefined;
         if (finalMsg) {
+          if (isHiddenInternalChatMessage(finalMsg)) {
+            void get().loadHistory(true);
+            break;
+          }
           const updates = collectToolUpdates(finalMsg, resolvedState);
           if (isToolResultRole(finalMsg.role)) {
             // Resolve file path from the streaming assistant message's matching tool call
@@ -2571,6 +2223,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                       ...(currentStream as RawMessage),
                       role: 'assistant',
                       id: snapId,
+                      timestamp: currentStream.timestamp ?? Math.floor(Date.now() / 1000),
+                      _sessionKey: currentSessionKey,
                     });
                   }
                 }
@@ -2586,9 +2240,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 streamingTools: updates.length > 0 ? upsertToolStatuses(s.streamingTools, updates) : s.streamingTools,
               };
             });
-            saveMsgCache(currentSessionKey, get().messages);
-            void loadMissingPreviews(get().messages).then((updated) => {
+            saveMsgCache(currentSessionKey, tagMessagesForSession(get().messages, currentSessionKey));
+            const previewSessionKey = currentSessionKey;
+            const previewMessages = tagMessagesForSession(get().messages, previewSessionKey);
+            void loadMissingPreviews(previewMessages).then((updated) => {
               if (!updated) return;
+              if (get().currentSessionKey !== previewSessionKey) return;
               set((s) => ({
                 messages: s.messages.map(msg =>
                   msg._attachedFiles
@@ -2601,7 +2258,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
           const toolOnly = isToolOnlyMessage(finalMsg);
           const hasOutput = hasNonToolAssistantContent(finalMsg);
-          const msgId = finalMsg.id || (toolOnly ? `run-${runId}-tool-${Date.now()}` : `run-${runId}`);
+          const msgId = finalMsg.id || makeStableMessageId(
+            toolOnly ? `run-${runId || 'unknown'}-tool` : `run-${runId || 'unknown'}`,
+            finalMsg,
+          );
           set((s) => {
             const nextTools = updates.length > 0 ? upsertToolStatuses(s.streamingTools, updates) : s.streamingTools;
             const streamingTools = hasOutput ? [] : nextTools;
@@ -2613,9 +2273,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ...finalMsg,
                 role: (finalMsg.role || 'assistant') as RawMessage['role'],
                 id: msgId,
+                timestamp: finalMsg.timestamp ?? Math.floor(Date.now() / 1000),
+                _sessionKey: currentSessionKey,
                 _attachedFiles: [...(finalMsg._attachedFiles || []), ...pendingImgs],
               }
-              : { ...finalMsg, role: (finalMsg.role || 'assistant') as RawMessage['role'], id: msgId };
+              : {
+                ...finalMsg,
+                role: (finalMsg.role || 'assistant') as RawMessage['role'],
+                id: msgId,
+                timestamp: finalMsg.timestamp ?? Math.floor(Date.now() / 1000),
+                _sessionKey: currentSessionKey,
+              };
             const clearPendingImages = { pendingToolImages: [] as AttachedFileMeta[] };
 
             // Check if message already exists (prevent duplicates)
@@ -2638,14 +2306,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
               };
             }
             return toolOnly ? {
-              messages: [...s.messages, msgWithImages],
+              messages: normalizeVisibleMessages([...s.messages, msgWithImages]),
               streamingText: '',
               streamingMessage: null,
               pendingFinal: true,
               streamingTools,
               ...clearPendingImages,
             } : {
-              messages: [...s.messages, msgWithImages],
+              messages: normalizeVisibleMessages([...s.messages, msgWithImages]),
               streamingText: '',
               streamingMessage: null,
               sending: hasOutput ? false : s.sending,
@@ -2658,12 +2326,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // Persist committed messages to localStorage immediately so a
           // renderer reload (e.g. refresh) can restore them before Gateway
           // has a chance to return the history via chat.history RPC.
-          saveMsgCache(currentSessionKey, get().messages);
+          saveMsgCache(currentSessionKey, tagMessagesForSession(get().messages, currentSessionKey));
           // Eagerly load any missing image previews for the just-committed
           // messages (e.g. tool-output images whose filePath needs a data: URL).
           // loadMissingPreviews calls /api/files/thumbnails; it is idempotent.
-          void loadMissingPreviews(get().messages).then((updated) => {
+          const previewSessionKey = currentSessionKey;
+          const previewMessages = tagMessagesForSession(get().messages, previewSessionKey);
+          void loadMissingPreviews(previewMessages).then((updated) => {
             if (!updated) return;
+            if (get().currentSessionKey !== previewSessionKey) return;
             set((s) => ({
               messages: s.messages.map(msg =>
                 msg._attachedFiles
@@ -2673,8 +2344,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }));
           });
           if (hasOutput && !toolOnly) {
-            clearHistoryPoll();
+            clearHistoryPoll(currentSessionKey);
+            finishRunMonitor(currentSessionKey, 'completed');
             finishInFlightRun(currentSessionKey, runId);
+            set({ activityLabel: null });
             // Quietly reload to get Gateway's authoritative record (with stable IDs)
             void get().loadHistory(true);
           }
@@ -2689,13 +2362,77 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const errorMsg = String(event.errorMessage || 'An error occurred');
         const wasSending = get().sending;
 
+        if (isOpenAiCodexRegionAuthFailure(errorMsg)) {
+          const message = formatOpenAiCodexRegionAuthFailure(errorMsg);
+          appendLocalSystemNotice(currentSessionKey, message);
+          clearHistoryPoll(currentSessionKey);
+          clearErrorRecoveryTimer(currentSessionKey);
+          finishRunMonitor(currentSessionKey, 'failed');
+          finishInFlightRun(currentSessionKey, runId);
+          set({
+            error: message,
+            sending: false,
+            activeRunId: null,
+            streamingText: '',
+            streamingMessage: null,
+            streamingTools: [],
+            pendingFinal: false,
+            lastUserMessageAt: null,
+            activityLabel: null,
+            pendingToolImages: [],
+          });
+          break;
+        }
+
+        if (isOpenAiCodexNetworkFailure(errorMsg)) {
+          const inFlight = inFlightRunBySession.get(currentSessionKey);
+          if (hasAssistantMessageAfter(get().messages, inFlight?.lastUserMessageAt)) {
+            clearHistoryPoll(currentSessionKey);
+            clearErrorRecoveryTimer(currentSessionKey);
+            finishRunMonitor(currentSessionKey, 'completed');
+            finishInFlightRun(currentSessionKey, runId);
+            set({
+              error: null,
+              sending: false,
+              activeRunId: null,
+              streamingText: '',
+              streamingMessage: null,
+              streamingTools: [],
+              pendingFinal: false,
+              lastUserMessageAt: null,
+              activityLabel: null,
+              pendingToolImages: [],
+            });
+            break;
+          }
+          const message = formatOpenAiCodexNetworkFailure(errorMsg);
+          appendLocalSystemNotice(currentSessionKey, message);
+          clearHistoryPoll(currentSessionKey);
+          clearErrorRecoveryTimer(currentSessionKey);
+          finishRunMonitor(currentSessionKey, 'failed');
+          finishInFlightRun(currentSessionKey, runId);
+          set({
+            error: message,
+            sending: false,
+            activeRunId: null,
+            streamingText: '',
+            streamingMessage: null,
+            streamingTools: [],
+            pendingFinal: false,
+            lastUserMessageAt: null,
+            activityLabel: null,
+            pendingToolImages: [],
+          });
+          break;
+        }
+
         if (isDeepSeekReasoningReplayError(errorMsg)) {
-          const sk = get().currentSessionKey;
           void useGatewayStore.getState().rpc(
             'sessions.patch',
-            { key: sk, thinkingLevel: 'off' },
+            { key: currentSessionKey, thinkingLevel: 'off' },
             15_000,
           ).then(() => {
+            if (get().currentSessionKey !== currentSessionKey) return;
             set({ thinkingLevel: 'off' });
           }).catch(() => { /* ignore */ });
         }
@@ -2710,7 +2447,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const alreadyExists = get().messages.some(m => m.id === snapId);
           if (!alreadyExists) {
             set((s) => ({
-              messages: [...s.messages, { ...currentStream, role: 'assistant' as const, id: snapId }],
+              messages: normalizeVisibleMessages([
+                ...s.messages,
+                {
+                  ...currentStream,
+                  role: 'assistant' as const,
+                  id: snapId,
+                  timestamp: currentStream.timestamp ?? Math.floor(Date.now() / 1000),
+                  _sessionKey: currentSessionKey,
+                },
+              ]),
             }));
           }
         }
@@ -2721,27 +2467,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
           streamingMessage: null,
           streamingTools: [],
           pendingFinal: false,
+          activityLabel: 'activityRecovering',
           pendingToolImages: [],
         });
+        appendLocalSystemNotice(
+          currentSessionKey,
+          isDeepSeekReasoningReplayError(errorMsg) ? formatDeepSeekReasoningReplayError(errorMsg) : errorMsg,
+        );
 
         // Don't immediately give up: the Gateway often retries internally
         // after transient API failures (e.g. "terminated"). Keep `sending`
         // true for a grace period so that recovery events are processed and
         // the agent-phase-completion handler can still trigger loadHistory.
         if (wasSending) {
-          clearErrorRecoveryTimer();
           const ERROR_RECOVERY_GRACE_MS = 15_000;
-          _errorRecoveryTimer = setTimeout(() => {
-            _errorRecoveryTimer = null;
+          scheduleErrorRecoveryTimer(currentSessionKey, () => {
             const state = get();
+            if (state.currentSessionKey !== currentSessionKey) return;
             if (state.sending && !state.streamingMessage) {
-              clearHistoryPoll();
+              clearHistoryPoll(currentSessionKey);
+              finishRunMonitor(currentSessionKey, 'failed');
               finishInFlightRun(currentSessionKey, runId);
               // Grace period expired with no recovery — finalize the error
               set({
                 sending: false,
                 activeRunId: null,
                 lastUserMessageAt: null,
+                activityLabel: null,
               });
               // One final history reload in case the Gateway completed in the
               // background and we just missed the event.
@@ -2749,16 +2501,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
           }, ERROR_RECOVERY_GRACE_MS);
         } else {
-          clearHistoryPoll();
+          clearHistoryPoll(currentSessionKey);
+          finishRunMonitor(currentSessionKey, 'failed');
           finishInFlightRun(currentSessionKey, runId);
-          set({ sending: false, activeRunId: null, lastUserMessageAt: null });
+          set({ sending: false, activeRunId: null, lastUserMessageAt: null, activityLabel: null });
         }
         break;
       }
       case 'aborted': {
-        clearHistoryPoll();
-        clearErrorRecoveryTimer();
+        clearHistoryPoll(currentSessionKey);
+        clearErrorRecoveryTimer(currentSessionKey);
         flushPartialStreamingToMessages(get, set);
+        finishRunMonitor(currentSessionKey, 'aborted');
         finishInFlightRun(currentSessionKey, runId);
         set({
           sending: false,
@@ -2768,6 +2522,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           streamingTools: [],
           pendingFinal: false,
           lastUserMessageAt: null,
+          activityLabel: null,
           pendingToolImages: [],
         });
         break;

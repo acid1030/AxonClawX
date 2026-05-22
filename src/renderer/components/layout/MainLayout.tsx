@@ -3,36 +3,38 @@
  * macOS 风格可收缩侧边栏 + 浮动右侧面板
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '@/stores/settings';
 import { loadLocale } from '@/axonclawx/locales';
 import { hostApiFetch } from '@/lib/host-api';
-import { HomeView } from '@/views/HomeView';
-import { DashboardView } from '@/views/DashboardView';
 import { ChatView } from '@/components/chat/ChatView';
-import { AgentsView } from '@/views/AgentsView';
-import { Skills } from '@/pages/Skills';
-import Scheduler from '@/axonclawx/windows/Scheduler';
-import Nodes from '@/axonclawx/windows/Nodes';
-import { UsageView } from '@/views/UsageView';
-import { SystemView } from '@/views/SystemView';
-import { DiagnosticsView } from '@/views/DiagnosticsView';
-import { KnowledgeView } from '@/views/KnowledgeView';
-import { ActivityMonitorView } from '@/views/ActivityMonitorView';
-import { IntelligenceManagementView } from '@/views/IntelligenceManagementView';
-import { AgentOrchestrationCanvasView } from '@/views/AgentOrchestrationCanvasView';
-import { InstallationWizardView } from '@/views/InstallationWizardView';
-import { ConfigurationCenterView } from '@/views/ConfigurationCenterView';
-import { UsageWizardView } from '@/views/UsageWizardView';
-import { GatewayMonitoringView } from '@/views/GatewayMonitoringView';
-import { TasksView } from '@/views/TasksView';
 import { UnifiedSidebar } from '@/components/Sidebar/UnifiedSidebar';
 import { FloatingPanel } from '@/components/Panel/FloatingPanel';
 import { PanelContent } from '@/components/Panel/PanelContent';
 import { PanelTrigger } from '@/components/Panel/PanelTrigger';
 import { useGatewayStore } from '@/stores/gateway';
 const lockLogo = '/icon.png';
+
+const HomeView = lazy(() => import('@/views/HomeView').then((m) => ({ default: m.HomeView })));
+const DashboardView = lazy(() => import('@/views/DashboardView').then((m) => ({ default: m.DashboardView })));
+const AgentsView = lazy(() => import('@/views/AgentsView').then((m) => ({ default: m.AgentsView })));
+const Skills = lazy(() => import('@/pages/Skills').then((m) => ({ default: m.Skills })));
+const Scheduler = lazy(() => import('@/axonclawx/windows/Scheduler'));
+const Nodes = lazy(() => import('@/axonclawx/windows/Nodes'));
+const UsageView = lazy(() => import('@/views/UsageView').then((m) => ({ default: m.UsageView })));
+const SystemView = lazy(() => import('@/views/SystemView').then((m) => ({ default: m.SystemView })));
+const DiagnosticsView = lazy(() => import('@/views/DiagnosticsView').then((m) => ({ default: m.DiagnosticsView })));
+const KnowledgeView = lazy(() => import('@/views/KnowledgeView').then((m) => ({ default: m.KnowledgeView })));
+const ActivityMonitorView = lazy(() => import('@/views/ActivityMonitorView').then((m) => ({ default: m.ActivityMonitorView })));
+const IntelligenceManagementView = lazy(() => import('@/views/IntelligenceManagementView').then((m) => ({ default: m.IntelligenceManagementView })));
+const AgentOrchestrationCanvasView = lazy(() => import('@/views/AgentOrchestrationCanvasView').then((m) => ({ default: m.AgentOrchestrationCanvasView })));
+const InstallationWizardView = lazy(() => import('@/views/InstallationWizardView').then((m) => ({ default: m.InstallationWizardView })));
+const ConfigurationCenterView = lazy(() => import('@/views/ConfigurationCenterView').then((m) => ({ default: m.ConfigurationCenterView })));
+const UsageWizardView = lazy(() => import('@/views/UsageWizardView').then((m) => ({ default: m.UsageWizardView })));
+const GatewayMonitoringView = lazy(() => import('@/views/GatewayMonitoring/GatewayMonitoringView').then((m) => ({ default: m.GatewayMonitoringView })));
+const TasksView = lazy(() => import('@/views/TasksView').then((m) => ({ default: m.TasksView })));
+const ResourceLibraryView = lazy(() => import('@/views/ResourceLibraryView').then((m) => ({ default: m.ResourceLibraryView })));
 
 class RenderErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -80,6 +82,12 @@ const ADVANCED_ROUTE_TO_VISIBILITY_KEY: Record<string, 'agentConfig' | 'knowledg
 };
 const FORCE_SETUP_WIZARD_KEY = 'clawx.force-setup-wizard';
 const FORCE_SETUP_WIZARD_ALWAYS = false;
+
+const ViewLoadingFallback: React.FC = () => (
+  <div className="flex h-full min-h-0 items-center justify-center text-sm text-white/50">
+    Loading...
+  </div>
+);
 
 const MainLayout: React.FC = () => {
   const [activeNav, setActiveNav] = useState('chat');
@@ -297,6 +305,8 @@ const MainLayout: React.FC = () => {
         return <IntelligenceManagementView />;
       case 'skill-config':
         return <Skills onNavigateTo={navigateTo} />;
+      case 'resource-library':
+        return <ResourceLibraryView />;
       case 'knowledge':
         return <KnowledgeView />;
       case 'cron':
@@ -385,11 +395,19 @@ const MainLayout: React.FC = () => {
   }
 
   if (forceSetupWizard || !setupComplete) {
-    return <InstallationWizardView onNavigateTo={navigateTo} />;
+    return (
+      <Suspense fallback={<ViewLoadingFallback />}>
+        <InstallationWizardView onNavigateTo={navigateTo} />
+      </Suspense>
+    );
   }
 
   if (activeNav === 'usage-wizard') {
-    return <UsageWizardView onNavigateTo={navigateTo} />;
+    return (
+      <Suspense fallback={<ViewLoadingFallback />}>
+        <UsageWizardView onNavigateTo={navigateTo} />
+      </Suspense>
+    );
   }
 
   return (
@@ -405,7 +423,9 @@ const MainLayout: React.FC = () => {
       <main className="flex-1 min-h-0 flex flex-col overflow-hidden px-[10px] w-full min-w-0">
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <RenderErrorBoundary>
-            {renderContent()}
+            <Suspense fallback={<ViewLoadingFallback />}>
+              {renderContent()}
+            </Suspense>
           </RenderErrorBoundary>
         </div>
       </main>

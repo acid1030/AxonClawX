@@ -3,7 +3,8 @@
  * Renders user / assistant / system / toolresult messages
  * with markdown, thinking sections, images, and tool cards.
  */
-import { useState, useCallback, useEffect, memo } from 'react';
+import React, { useState, useCallback, useEffect, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Sparkles, Copy, Check, ChevronDown, ChevronRight, Wrench, FileText, Film, Music, FileArchive, File, X, FolderOpen, ZoomIn, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -485,29 +486,95 @@ function FileIcon({ mimeType, className }: { mimeType: string; className?: strin
 }
 
 function FileCard({ file }: { file: AttachedFileMeta }) {
+  const { t } = useTranslation();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
   const handleOpen = useCallback(() => {
     if (file.filePath) {
       invokeIpc('shell:openPath', file.filePath);
     }
   }, [file.filePath]);
 
+  const handleOpenFolder = useCallback(() => {
+    if (file.filePath) {
+      invokeIpc('shell:showItemInFolder', file.filePath);
+    }
+  }, [file.filePath]);
+
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    if (!file.filePath) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu({ x: event.clientX, y: event.clientY });
+  }, [file.filePath]);
+
+  useEffect(() => {
+    if (!menu) return undefined;
+    const close = () => setMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menu]);
+
   return (
-    <div 
-      className={cn(
-        "flex items-center gap-3 rounded-xl border border-black/10 dark:border-white/10 px-3 py-2.5 bg-black/5 dark:bg-white/5 max-w-[220px]",
-        file.filePath && "cursor-pointer hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-      )}
-      onClick={handleOpen}
-      title={file.filePath ? "Open file" : undefined}
-    >
-      <FileIcon mimeType={file.mimeType} className="h-5 w-5 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 overflow-hidden">
-        <p className="text-xs font-medium truncate">{file.fileName}</p>
-        <p className="text-[10px] text-muted-foreground">
-          {file.fileSize > 0 ? formatFileSize(file.fileSize) : 'File'}
-        </p>
+    <>
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-xl border border-black/10 dark:border-white/10 px-3 py-2.5 bg-black/5 dark:bg-white/5 max-w-[220px]",
+          file.filePath && "cursor-pointer hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+        )}
+        onClick={handleOpen}
+        onContextMenu={handleContextMenu}
+        title={file.filePath || file.fileName}
+      >
+        <FileIcon mimeType={file.mimeType} className="h-5 w-5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 overflow-hidden">
+          <p className="text-xs font-medium truncate">{file.fileName}</p>
+          <p className="text-[10px] text-muted-foreground">
+            {file.fileSize > 0 ? formatFileSize(file.fileSize) : 'File'}
+          </p>
+        </div>
       </div>
-    </div>
+      {menu && (
+        <div
+          className="fixed z-[120] min-w-[180px] overflow-hidden rounded-xl border border-slate-600 bg-slate-950 py-1 text-sm text-slate-100 shadow-2xl"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-800"
+            onClick={() => {
+              setMenu(null);
+              handleOpen();
+            }}
+          >
+            <File className="h-4 w-4 text-blue-300" />
+            <span>{t('chatView.openFile', { defaultValue: '打开文件' })}</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-800"
+            onClick={() => {
+              setMenu(null);
+              handleOpenFolder();
+            }}
+          >
+            <FolderOpen className="h-4 w-4 text-amber-300" />
+            <span>{t('chatView.openFileFolder', { defaultValue: '打开文件目录' })}</span>
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 

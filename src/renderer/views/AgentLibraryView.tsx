@@ -7,7 +7,6 @@ import {
   Headset,
   LineChart,
   Megaphone,
-  Package,
   Palette,
   Play,
   RefreshCw,
@@ -239,10 +238,48 @@ function buildAgentWorkspace(templateId: string): string {
   return `${AGENT_LIBRARY_WORKSPACE_ROOT}/${safeId}`;
 }
 
+function normalizeComparableText(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isAgentInstalledFromTemplate(
+  agent: { id?: string; name?: string; workspace?: string },
+  label: string,
+  template: Pick<TemplateViewModel, 'id' | 'name' | 'displayName'>,
+): boolean {
+  const id = normalizeComparableText(agent.id);
+  const name = normalizeComparableText(agent.name);
+  const workspace = normalizeComparableText(agent.workspace);
+  const resolvedLabel = normalizeComparableText(label);
+  const templateId = normalizeComparableText(template.id);
+  const templateName = normalizeComparableText(template.name);
+  const displayName = normalizeComparableText(template.displayName);
+  const expectedWorkspace = normalizeComparableText(buildAgentWorkspace(template.id));
+
+  return id === templateId
+    || id.includes(templateId)
+    || name === templateName
+    || name === displayName
+    || resolvedLabel === templateName
+    || resolvedLabel === displayName
+    || workspace === expectedWorkspace
+    || workspace.endsWith(`/${templateId}`);
+}
+
 function getAgentIdFromCreateResult(result: unknown): string | null {
   if (!result || typeof result !== 'object') return null;
   const obj = result as Record<string, unknown>;
-  return typeof obj.agentId === 'string' && obj.agentId.trim() ? obj.agentId.trim() : null;
+  for (const key of ['agentId', 'id', 'key']) {
+    if (typeof obj[key] === 'string' && obj[key].trim()) return obj[key].trim();
+  }
+  const agent = obj.agent;
+  if (agent && typeof agent === 'object') {
+    const nested = agent as Record<string, unknown>;
+    for (const key of ['agentId', 'id', 'key']) {
+      if (typeof nested[key] === 'string' && nested[key].trim()) return nested[key].trim();
+    }
+  }
+  return null;
 }
 
 function resolveCategoryColor(category: AgentCategory): {
@@ -329,7 +366,15 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
   const [busyUseAgentId, setBusyUseAgentId] = useState<string | null>(null);
   const [catalogTemplates, setCatalogTemplates] = useState<BuiltinAgentTemplate[]>(BUILTIN_TEMPLATES_FALLBACK);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [refreshingAgents, setRefreshingAgents] = useState(false);
   const [keyword, setKeyword] = useState('');
+  const [notice, setNotice] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), notice.type === 'error' ? 5000 : 3000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     let stopped = false;
@@ -377,11 +422,10 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
           ? localizeTag(tpl.tag, t)
           : translatedTag;
 
-        const installedAgent = agents.find((agent) => {
-          const label = resolveLabel(agent);
-          const normalizedLabel = String(label || '').trim();
-          return normalizedLabel === displayName || normalizedLabel === tpl.name || agent.id.includes(tpl.id);
-        });
+        const installedAgent = agents.find((agent) => isAgentInstalledFromTemplate(agent, resolveLabel(agent), {
+          ...tpl,
+          displayName,
+        }));
         return {
           ...tpl,
           displayName,
@@ -403,11 +447,33 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
   const openAgentChat = async (agentId: string) => {
     setBusyUseAgentId(agentId);
     try {
-      await useChatStore.getState().loadSessions();
-      useChatStore.getState().switchSession(`agent:${agentId}:main`);
+      const agent = useAgentsStore.getState().agents.find((item) => item.id === agentId);
+      const sessionKey = agent?.mainSessionKey || `agent:${agentId}:main`;
+      const label = agent ? resolveLabel(agent) : agentId;
+      useChatStore.getState().setSessionLabel(sessionKey, label);
+      useChatStore.getState().switchSession(sessionKey);
       onNavigateTo?.('chat');
+      void useChatStore.getState().loadSessions();
+      setNotice({ type: 'success', text: t('agentLibrary.useStarted') });
+    } catch (error) {
+      setNotice({ type: 'error', text: t('agentLibrary.useFailed', { error: String(error) }) });
+      toast.error(t('agentLibrary.useFailed', { error: String(error) }), { duration: 5000 });
     } finally {
       setBusyUseAgentId(null);
+    }
+  };
+
+  const refreshAgentList = async () => {
+    setRefreshingAgents(true);
+    setNotice({ type: 'info', text: t('agentLibrary.refreshing') });
+    try {
+      await fetchAgents();
+      setNotice({ type: 'success', text: t('agentLibrary.refreshSuccess') });
+    } catch (error) {
+      setNotice({ type: 'error', text: t('agentLibrary.refreshFailed', { error: String(error) }) });
+      toast.error(t('agentLibrary.refreshFailed', { error: String(error) }), { duration: 5000 });
+    } finally {
+      setRefreshingAgents(false);
     }
   };
 
@@ -418,10 +484,7 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
       const beforeAgents = useAgentsStore.getState().agents;
       const existingAgent = beforeAgents.find((agent) => {
         const label = resolveLabel(agent);
-        return agent.id === template.id
-          || agent.id.includes(template.id)
-          || label === template.displayName
-          || label === template.name;
+        return isAgentInstalledFromTemplate(agent, label, template);
       });
       let createResult: unknown = null;
       if (!existingAgent) {
@@ -448,8 +511,7 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
         (getAgentIdFromCreateResult(createResult)
           ? latestAgents.find((a) => a.id === getAgentIdFromCreateResult(createResult))
           : null) ||
-        latestAgents.find((a) => a.id === template.id || a.id.includes(template.id)) ||
-        latestAgents.find((a) => resolveLabel(a) === template.displayName || resolveLabel(a) === template.name) ||
+        latestAgents.find((a) => isAgentInstalledFromTemplate(a, resolveLabel(a), template)) ||
         null;
       if (!created) {
         throw new Error('Agent created but unable to resolve agent id');
@@ -471,8 +533,10 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
         t('agentLibrary.installSuccess', { name: template.displayName }),
         { duration: 3000 },
       );
+      setNotice({ type: 'success', text: t('agentLibrary.installSuccess', { name: template.displayName }) });
       await fetchAgents();
     } catch (err) {
+      setNotice({ type: 'error', text: t('agentLibrary.installFailed', { error: String(err) }) });
       toast.error(
         t('agentLibrary.installFailed', { error: String(err) }),
         { duration: 5000 },
@@ -496,13 +560,27 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
           </div>
           <button
             type="button"
-            onClick={() => void fetchAgents()}
+            onClick={() => void refreshAgentList()}
+            disabled={refreshingAgents}
             className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-sunken)] px-2.5 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-surface-raised)]"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshingAgents ? 'animate-spin' : ''}`} />
             {t('common.refresh')}
           </button>
         </div>
+        {notice && (
+          <div
+            className={`mt-2.5 rounded-lg border px-3 py-2 text-xs ${
+              notice.type === 'success'
+                ? 'border-emerald-400/35 bg-emerald-500/10 text-emerald-200'
+                : notice.type === 'error'
+                  ? 'border-rose-400/35 bg-rose-500/10 text-rose-200'
+                  : 'border-sky-400/35 bg-sky-500/10 text-sky-200'
+            }`}
+          >
+            {notice.text}
+          </div>
+        )}
         <div className="mt-2.5 flex items-center gap-2">
           <input
             type="text"
@@ -532,7 +610,7 @@ export const AgentLibraryView: React.FC<AgentLibraryViewProps> = ({ onNavigateTo
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-2.5">
                   <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${color.iconBg} ${color.iconFg}`}>
-                    <Package className="h-4 w-4" />
+                    <Icon className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
                     <div className="truncate text-[17px] font-semibold leading-6 text-white">{template.displayName}</div>

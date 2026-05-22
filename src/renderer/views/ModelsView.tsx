@@ -10,7 +10,7 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { cn } from '@/lib/utils';
 
 const staticModels = [
-  { id: 'zhipuai/glm-5', name: 'GLM-5', provider: 'Zhipu AI', status: 'default' as const, hasKey: true, pricing: 'pay-as-you-go' },
+  { id: 'zhipuai/glm-5.1', name: 'GLM-5.1', provider: 'Zhipu AI', status: 'default' as const, hasKey: true, pricing: 'pay-as-you-go' },
   { id: 'zhipu/glm-4-flash', name: 'GLM-4-Flash', provider: 'Zhipu AI', status: 'available' as const, hasKey: true, pricing: 'free quota' },
   { id: 'google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash', provider: 'Google', status: 'available' as const, hasKey: true, pricing: 'pay-as-you-go' },
   { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', provider: 'DeepSeek', status: 'available' as const, hasKey: true, pricing: 'pay-as-you-go' },
@@ -19,7 +19,7 @@ const staticModels = [
 ];
 
 const ModelsView: React.FC = () => {
-  const [defaultModel, setDefaultModel] = useState('zhipuai/glm-5');
+  const [defaultModel, setDefaultModel] = useState('zhipuai/glm-5.1');
   const [loading] = useState(false);
   const { t } = useTranslation();
 

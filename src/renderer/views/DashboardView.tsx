@@ -50,6 +50,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { isInternalSessionTitle, isPrimaryChatSession } from '@/stores/chat/session-utils';
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + 'B';
@@ -135,6 +136,7 @@ const FAST_INTERVAL = 25000;
 function sanitizeDashboardSessionTitle(value: string): string {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   if (!text) return '';
+  if (isInternalSessionTitle(text)) return '';
   const blockedPatterns = [
     /<relevant-memories>/i,
     /read heartbeat\.md/i,
@@ -240,12 +242,19 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateTo }) => {
       })) as { sessions?: Array<{ sessionKey?: string; key?: string; label?: string; displayName?: string; lastMessage?: string; updatedAt?: number; lastActivity?: number }> };
       if (result?.sessions && Array.isArray(result.sessions)) {
         setSessions(
-          result.sessions.map((s) => ({
-            sessionKey: s.sessionKey ?? s.key ?? '',
-            label: s.label ?? s.displayName,
-            lastMessage: s.lastMessage?.slice(0, 50),
-            lastActivity: s.updatedAt ?? s.lastActivity,
-          }))
+          result.sessions
+            .map((s) => ({
+              sessionKey: s.sessionKey ?? s.key ?? '',
+              label: sanitizeDashboardSessionTitle(s.label ?? s.displayName ?? ''),
+              lastMessage: sanitizeDashboardSessionTitle(s.lastMessage?.slice(0, 50) ?? ''),
+              lastActivity: s.updatedAt ?? s.lastActivity,
+            }))
+            .filter((session) => {
+              if (!session.sessionKey) return false;
+              const storeSession = useChatStore.getState().sessions.find((item) => item.key === session.sessionKey);
+              if (storeSession && !isPrimaryChatSession(storeSession)) return false;
+              return Boolean(session.label || session.lastMessage || session.lastActivity);
+            })
         );
       }
     } catch {
@@ -512,6 +521,10 @@ const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateTo }) => {
   const favoriteSessions = useMemo(() => (
     Object.keys(favoriteSessionKeys || {})
       .filter((key) => favoriteSessionKeys[key])
+      .filter((key) => {
+        const storeSession = chatSessions.find((session) => session.key === key);
+        return !storeSession || isPrimaryChatSession(storeSession);
+      })
       .map((key) => {
         const info = sessionInfoByKey.get(key);
         const storeSession = chatSessions.find((session) => session.key === key);

@@ -196,9 +196,8 @@ function TaskCard({ run, onDelete }: { run: TaskRunRecord; onDelete: (localId: s
   const { t } = useTranslation('tasks');
   const duration = run.updatedAt - run.createdAt;
 
-  // Group message events to show sub-agent contributions
-  const messageEvents = run.events.filter((e) => e.type === 'message' || e.type === 'completed');
   const hasResult = Boolean(run.result && run.result.trim());
+  const childRunCount = run.childRunIds?.length || 0;
 
   return (
     <motion.div
@@ -226,6 +225,7 @@ function TaskCard({ run, onDelete }: { run: TaskRunRecord; onDelete: (localId: s
               <span>{formatTime(run.createdAt)}</span>
               {duration > 0 && <span>{formatDuration(duration)}</span>}
               <span>{run.events.length} {t('eventsCount')}</span>
+              {childRunCount > 0 && <span>{childRunCount} {t('childRunsCount', { defaultValue: '子任务' })}</span>}
               {hasResult && <span className="text-emerald-400/60">● 有输出</span>}
             </div>
           </div>
@@ -382,55 +382,68 @@ export function TasksView() {
     void ensureHydrated();
   }, [ensureHydrated]);
 
-  const multiAgentRuns = useMemo(
-    () => runs.filter((r) => r.source === 'multi-agent'),
+  const visibleRuns = useMemo(
+    () => runs,
     [runs],
   );
 
   const tabs: { key: TabKey; label: string; count: number }[] = useMemo(() => {
-    const running = multiAgentRuns.filter((r) => r.status === 'running' || r.status === 'pending');
-    const completed = multiAgentRuns.filter((r) => r.status === 'completed');
-    const failed = multiAgentRuns.filter((r) => r.status === 'failed');
+    const running = visibleRuns.filter((r) => r.status === 'running' || r.status === 'pending');
+    const completed = visibleRuns.filter((r) => r.status === 'completed');
+    const failed = visibleRuns.filter((r) => r.status === 'failed');
     return [
-      { key: 'all', label: t('tabAll'), count: multiAgentRuns.length },
+      { key: 'all', label: t('tabAll'), count: visibleRuns.length },
       { key: 'running', label: t('tabRunning'), count: running.length },
       { key: 'completed', label: t('tabCompleted'), count: completed.length },
       { key: 'failed', label: t('tabFailed'), count: failed.length },
     ];
-  }, [multiAgentRuns, t]);
+  }, [visibleRuns, t]);
 
   const filteredRuns = useMemo(() => {
     let filtered: TaskRunRecord[];
     switch (activeTab) {
       case 'running':
-        filtered = multiAgentRuns.filter((r) => r.status === 'running' || r.status === 'pending');
+        filtered = visibleRuns.filter((r) => r.status === 'running' || r.status === 'pending');
         break;
       case 'completed':
-        filtered = multiAgentRuns.filter((r) => r.status === 'completed');
+        filtered = visibleRuns.filter((r) => r.status === 'completed');
         break;
       case 'failed':
-        filtered = multiAgentRuns.filter((r) => r.status === 'failed');
+        filtered = visibleRuns.filter((r) => r.status === 'failed');
         break;
       default:
-        filtered = multiAgentRuns;
+        filtered = visibleRuns;
     }
     return [...filtered].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [multiAgentRuns, activeTab]);
+  }, [visibleRuns, activeTab]);
 
   const stats = useMemo(() => {
-    const running = multiAgentRuns.filter((r) => r.status === 'running' || r.status === 'pending').length;
-    const completed = multiAgentRuns.filter((r) => r.status === 'completed').length;
-    const failed = multiAgentRuns.filter((r) => r.status === 'failed').length;
-    const total = multiAgentRuns.length;
+    const running = visibleRuns.filter((r) => r.status === 'running' || r.status === 'pending').length;
+    const completed = visibleRuns.filter((r) => r.status === 'completed').length;
+    const failed = visibleRuns.filter((r) => r.status === 'failed').length;
+    const total = visibleRuns.length;
     return { running, completed, failed, total };
-  }, [multiAgentRuns]);
+  }, [visibleRuns]);
 
   const clearFinishedVisible = () => {
-    const done = multiAgentRuns.filter((r) => r.status === 'completed' || r.status === 'failed');
+    const done = visibleRuns.filter((r) => r.status === 'completed' || r.status === 'failed');
     for (const run of done) {
       removeRun(run.localId);
     }
   };
+
+  const loadMoreButton = hasMore ? (
+    <div className="flex justify-center pt-2">
+      <button
+        type="button"
+        onClick={() => void loadMore()}
+        disabled={loadingMore}
+        className="px-4 py-2 rounded-lg text-xs text-white/70 bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        {loadingMore ? t('loadingMore') : t('loadMore')}
+      </button>
+    </div>
+  ) : null;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -501,23 +514,15 @@ export function TasksView() {
               {filteredRuns.map((run) => (
                 <TaskCard key={run.localId} run={run} onDelete={removeRun} />
               ))}
-              {hasMore && activeTab === 'all' && (
-                <div className="flex justify-center pt-2">
-                  <button
-                    type="button"
-                    onClick={() => void loadMore()}
-                    disabled={loadingMore}
-                    className="px-4 py-2 rounded-lg text-xs text-white/70 bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {loadingMore ? t('loadingMore') : t('loadMore')}
-                  </button>
-                </div>
-              )}
+              {loadMoreButton}
             </div>
           ) : hydrating ? (
             <EmptyState message={t('loading')} />
           ) : (
-            <EmptyState message={t('empty')} />
+            <>
+              <EmptyState message={t('empty')} />
+              {loadMoreButton}
+            </>
           )}
         </div>
       </div>

@@ -17,6 +17,8 @@ type TargetFilter = 'all' | string;
 
 const TARGET_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'HEARTBEAT.md', 'AGENTS.md', 'TOOLS.md', 'MEMORY.md'];
 
+const getTemplateInstallKey = (template: Pick<WorkspaceTemplate, 'templateId' | 'targetFile'>) => `${template.templateId}::${template.targetFile}`;
+
 function simpleMarkdownToHtml(md: string): string {
   return md
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -55,6 +57,7 @@ export const TemplatesSectionV2: React.FC<TemplatesSectionV2Props> = ({ language
   const [editingTemplate, setEditingTemplate] = useState<WorkspaceTemplate | null>(null);
   const [editForm, setEditForm] = useState<{ name: string; desc: string; content: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [installedTemplateKeys, setInstalledTemplateKeys] = useState<Set<string>>(new Set());
 
   // Load templates
   const loadTemplates = useCallback(async () => {
@@ -68,10 +71,13 @@ export const TemplatesSectionV2: React.FC<TemplatesSectionV2Props> = ({ language
       } else {
         data = await templateSystem.getAllTemplates(language);
       }
+      const installed = viewMode === 'installed' ? data : await templateSystem.getInstalledTemplates();
+      setInstalledTemplateKeys(new Set(installed.map(getTemplateInstallKey)));
       setTemplates(data);
     } catch (e) {
       console.error('[TemplatesSection] Failed to load:', e);
       setTemplates([]);
+      setInstalledTemplateKeys(new Set());
     }
     setLoading(false);
   }, [viewMode, language]);
@@ -112,6 +118,10 @@ export const TemplatesSectionV2: React.FC<TemplatesSectionV2Props> = ({ language
 
   // Actions
   const handleInstall = useCallback(async (template: WorkspaceTemplate) => {
+    if (installedTemplateKeys.has(getTemplateInstallKey(template))) {
+      toast('success', ts.alreadyInstalled || ts.installed || 'Template installed');
+      return;
+    }
     setInstalling(template.id);
     try {
       await templateSystem.installTemplate(template);
@@ -121,7 +131,7 @@ export const TemplatesSectionV2: React.FC<TemplatesSectionV2Props> = ({ language
       toast('error', e?.message || ts.installFailed || 'Install failed');
     }
     setInstalling(null);
-  }, [loadTemplates, toast, ts]);
+  }, [installedTemplateKeys, loadTemplates, toast, ts]);
 
   const handleDelete = useCallback(async (template: WorkspaceTemplate) => {
     if (!template.dbId) return;
@@ -287,6 +297,7 @@ export const TemplatesSectionV2: React.FC<TemplatesSectionV2Props> = ({ language
               const isInstalling = installing === template.id;
               const isDeleting = deleting === template.id;
               const isLocal = template.source === 'installed';
+              const isInstalled = isLocal || installedTemplateKeys.has(getTemplateInstallKey(template));
 
               return (
                 <div
@@ -302,6 +313,11 @@ export const TemplatesSectionV2: React.FC<TemplatesSectionV2Props> = ({ language
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs font-bold text-slate-700 dark:text-white/80">{resolved.name}</span>
                           <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${sourceBadge.color}`}>{sourceBadge.label}</span>
+                          {isInstalled && !isLocal && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-500">
+                              {ts.alreadyInstalled || ts.viewInstalled || 'Installed'}
+                            </span>
+                          )}
                         </div>
                         <p className="text-[10px] text-slate-400 dark:text-white/40 mt-1 line-clamp-2">{resolved.desc}</p>
                         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
@@ -330,11 +346,15 @@ export const TemplatesSectionV2: React.FC<TemplatesSectionV2Props> = ({ language
                       {!isLocal && (
                         <button
                           onClick={() => handleInstall(template)}
-                          disabled={isInstalling}
-                          className="h-7 px-2.5 rounded-lg text-[10px] font-bold text-primary hover:bg-primary/10 flex items-center gap-1 disabled:opacity-50 transition-colors"
+                          disabled={isInstalling || isInstalled}
+                          className={`h-7 px-2.5 rounded-lg text-[10px] font-bold flex items-center gap-1 disabled:opacity-50 transition-colors ${
+                            isInstalled
+                              ? 'text-emerald-500 bg-emerald-500/10'
+                              : 'text-primary hover:bg-primary/10'
+                          }`}
                         >
-                          <span className="material-symbols-outlined text-[14px]">{isInstalling ? 'progress_activity' : 'download'}</span>
-                          <span className="whitespace-nowrap">{ts.download || '下载'}</span>
+                          <span className="material-symbols-outlined text-[14px]">{isInstalling ? 'progress_activity' : isInstalled ? 'check_circle' : 'download'}</span>
+                          <span className="whitespace-nowrap">{isInstalled ? (ts.alreadyInstalled || ts.viewInstalled || 'Installed') : (ts.download || '下载')}</span>
                         </button>
                       )}
 
@@ -431,10 +451,11 @@ export const TemplatesSectionV2: React.FC<TemplatesSectionV2Props> = ({ language
               {previewTemplate.source !== 'installed' && (
                 <button
                   onClick={() => { handleInstall(previewTemplate); setPreviewTemplate(null); }}
-                  className="h-8 px-3 rounded-lg text-[10px] font-bold border border-primary text-primary hover:bg-primary/10 flex items-center gap-1"
+                  disabled={installedTemplateKeys.has(getTemplateInstallKey(previewTemplate))}
+                  className="h-8 px-3 rounded-lg text-[10px] font-bold border border-primary text-primary hover:bg-primary/10 flex items-center gap-1 disabled:opacity-50 disabled:border-emerald-500 disabled:text-emerald-500 disabled:bg-emerald-500/10"
                 >
-                  <span className="material-symbols-outlined text-[14px]">download</span>
-                  {ts.download || '下载'}
+                  <span className="material-symbols-outlined text-[14px]">{installedTemplateKeys.has(getTemplateInstallKey(previewTemplate)) ? 'check_circle' : 'download'}</span>
+                  {installedTemplateKeys.has(getTemplateInstallKey(previewTemplate)) ? (ts.alreadyInstalled || ts.viewInstalled || 'Installed') : (ts.download || '下载')}
                 </button>
               )}
               {defaultAgentId && (

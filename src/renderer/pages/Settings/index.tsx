@@ -129,7 +129,7 @@ export function Settings() {
   const [codexStatusLoading, setCodexStatusLoading] = useState(false);
   const [codexQuickConnecting, setCodexQuickConnecting] = useState(false);
   const [codexProviderBaseUrl, setCodexProviderBaseUrl] = useState('');
-  const [codexPreferredModel, setCodexPreferredModel] = useState('gpt-5.4');
+  const [codexPreferredModel, setCodexPreferredModel] = useState('gpt-5.4-mini');
   const [codexFallbackModel, setCodexFallbackModel] = useState('gpt-5.3-codex');
   const [codexApiKey, setCodexApiKey] = useState('');
   const [codexConnectResult, setCodexConnectResult] = useState<CodexQuickConnectResponse | null>(null);
@@ -851,7 +851,7 @@ export function Settings() {
                       <div>
                         <Label className="text-[14px] font-medium text-foreground/80">Codex Plus 一键接入</Label>
                         <p className="text-[13px] text-muted-foreground mt-1">
-                          自动检测 codex CLI，并一键写入 OpenClaw 模型配置（主模型 gpt-5.4，备用 gpt-5.3-codex）。
+                          自动检测 codex CLI，并一键写入 OpenClaw 模型配置（主模型 gpt-5.4-mini，备用 gpt-5.3-codex）。
                         </p>
                       </div>
                       <Button
@@ -910,7 +910,7 @@ export function Settings() {
                         <Input
                           value={codexPreferredModel}
                           onChange={(e) => setCodexPreferredModel(e.target.value)}
-                          placeholder="gpt-5.4"
+                          placeholder="gpt-5.4-mini"
                           className="h-10 rounded-xl bg-white dark:bg-card border-black/10 dark:border-white/10 font-mono text-[13px]"
                         />
                       </div>

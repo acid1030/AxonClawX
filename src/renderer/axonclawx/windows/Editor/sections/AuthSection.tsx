@@ -301,6 +301,11 @@ export const AuthSection: React.FC<SectionProps> = ({ setField, getField, langua
     }
   }, [loadAuthItems, toast]);
 
+  const handleSelectProvider = useCallback((id: string | null) => {
+    setSelectedProvider(id);
+    setConfigured(false);
+  }, []);
+
   useEffect(() => {
     void loadAuthItems();
   }, [loadAuthItems]);
@@ -489,10 +494,7 @@ export const AuthSection: React.FC<SectionProps> = ({ setField, getField, langua
         <ProviderContent
           providers={SETUP_PROVIDERS}
           selectedProvider={selectedProvider}
-          onSelectProvider={(id) => {
-            setSelectedProvider(id);
-            setConfigured(false);
-          }}
+          onSelectProvider={handleSelectProvider}
           apiKey={apiKey}
           onApiKeyChange={setApiKey}
           onConfiguredChange={setConfigured}

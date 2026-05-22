@@ -7,7 +7,7 @@
  * are sent with the message (no base64 over WebSocket).
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { SendHorizontal, Square, X, Paperclip, FileText, Film, Music, FileArchive, File, Loader2 } from 'lucide-react';
+import { SendHorizontal, Square, X, Paperclip, FileText, Film, Music, FileArchive, File, Loader2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { hostApiFetch } from '@/lib/host-api';
@@ -19,6 +19,12 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 // ── Types ────────────────────────────────────────────────────────
+
+const OPENAI_CODEX_CHAT_MODELS = [
+  { id: 'gpt-5.5', name: 'GPT-5.5' },
+  { id: 'gpt-5.4-mini', name: 'GPT-5.4-Mini' },
+  { id: 'gpt-5.3-codex', name: 'GPT-5.3-Codex' },
+];
 
 export interface FileAttachment {
   id: string;
@@ -114,11 +120,15 @@ export function ChatInput({
     to: string;
     toProvider: string;
   } | null>(null);
+  const [queueExpanded, setQueueExpanded] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
   const gatewayStatus = useGatewayStore((s) => s.status);
   const currentSessionKey = useChatStore((s) => s.currentSessionKey);
   const sessions = useChatStore((s) => s.sessions);
+  const messageQueue = useChatStore((s) => s.messageQueue);
+  const queuedCount = messageQueue.length;
+  const activityLabel = useChatStore((s) => s.activityLabel);
   const loadSessions = useChatStore((s) => s.loadSessions);
   const isChatPage = variant === 'chat-page';
   const activeSessionModel = sessions.find((s) => s.key === currentSessionKey)?.model || '';
@@ -126,7 +136,6 @@ export function ChatInput({
   const normalizeProviderAlias = useCallback((providerValue: string): string => {
     const raw = String(providerValue || '').trim();
     if (!raw) return '';
-    if (raw.toLowerCase() === 'openai-codex') return 'openai';
     return raw;
   }, []);
 
@@ -139,13 +148,21 @@ export function ChatInput({
       if (/^\d+(?:\.\d+)?-codex$/i.test(next)) {
         next = `gpt-${next}`;
       }
+      if (/^gpt-5\.4$/i.test(next)) {
+        next = 'gpt-5.4-mini';
+      }
       return next;
     };
 
     if (raw.includes('/')) {
       const [provider, ...rest] = raw.split('/');
       if (!provider || rest.length === 0) return normalizeLeaf(raw);
-      return `${normalizeProviderAlias(provider)}/${normalizeLeaf(rest.join('/'))}`;
+      const leaf = normalizeLeaf(rest.join('/'));
+      const normalizedProvider = normalizeProviderAlias(provider);
+      const providerForModel = normalizedProvider.toLowerCase() === 'openai' && /^gpt-5\.(?:3-codex|4-mini|5)$/i.test(leaf)
+        ? 'openai-codex'
+        : normalizedProvider;
+      return `${providerForModel}/${leaf}`;
     }
     return normalizeLeaf(raw);
   }, [normalizeProviderAlias]);
@@ -187,7 +204,10 @@ export function ChatInput({
     const modelId = normalizeModelAlias(String(modelIdRaw || '').trim());
     if (!modelId) return '';
     if (modelId.includes('/')) return modelId;
-    const provider = normalizeProviderAlias(providerId);
+    const normalizedProvider = normalizeProviderAlias(providerId);
+    const provider = normalizedProvider.toLowerCase() === 'openai' && /^gpt-5\.(?:3-codex|4-mini|5)$/i.test(modelId)
+      ? 'openai-codex'
+      : normalizedProvider;
     return provider ? `${provider}/${modelId}` : modelId;
   }, [normalizeModelAlias, normalizeProviderAlias]);
 
@@ -209,7 +229,9 @@ export function ChatInput({
       }
     }
     const modelsPrimary = String(models.primary || '').trim();
-    if (modelsPrimary) collected.push({ value: modelsPrimary, label: modelsPrimary });
+    if (modelsPrimary) {
+      collected.push({ value: modelsPrimary, label: modelsPrimary });
+    }
     const modelFallbacks = Array.isArray(models.fallbacks) ? models.fallbacks : [];
     for (const item of modelFallbacks) {
       const mid = String(item || '').trim();
@@ -234,16 +256,24 @@ export function ChatInput({
     try {
       // Fetch from both /api/v1/config (effective config) and /api/config (raw user config)
       // to ensure all configured models are visible in the dropdown
-      const [cfgResult, rawCfgResult, statusResult] = await Promise.allSettled([
+      const [cfgResult, rawCfgResult, statusResult, providersResult] = await Promise.allSettled([
         hostApiFetch<{ config?: Record<string, unknown> } | Record<string, unknown>>('/api/v1/config'),
         hostApiFetch<Record<string, unknown>>('/api/config'),
         hostApiFetch<{
           models?: Array<{ provider?: string; model?: string; role?: string }>;
           fallbacks?: Array<{ role?: string; chain?: Array<{ provider?: string; model?: string }> }>;
         }>('/api/v1/llm/models-status'),
+        hostApiFetch<Array<{
+          id?: string;
+          type?: string;
+          hasKey?: boolean;
+          enabled?: boolean;
+          authMode?: string;
+          apiProtocol?: string;
+        }>>('/api/providers'),
       ]);
 
-      const opts: Array<{ value: string; label: string }> = [];
+      const opts: Array<{ value: string; label: string; source?: string }> = [];
       if (cfgResult.status === 'fulfilled') {
         const container = cfgResult.value as Record<string, unknown>;
         const cfg = ((container.config as Record<string, unknown>) || container || {}) as Record<string, unknown>;
@@ -254,6 +284,17 @@ export function ChatInput({
       if (rawCfgResult.status === 'fulfilled' && rawCfgResult.value) {
         const rawCfg = rawCfgResult.value as Record<string, unknown>;
         opts.push(...buildOptionsFromConfig(rawCfg));
+      }
+
+      // OpenAI Codex Auth uses a managed model catalog. Keep the current known
+      // Codex routes visible even when the local OpenClaw config has not been
+      // rewritten yet.
+      for (const model of OPENAI_CODEX_CHAT_MODELS) {
+        opts.push({
+          value: `openai-codex/${model.id}`,
+          label: `${model.name} (openai-codex)`,
+          source: 'builtin-codex',
+        });
       }
 
       if (statusResult.status === 'fulfilled') {
@@ -278,7 +319,28 @@ export function ChatInput({
         }
       }
 
+      const usableProviders = new Set<string>();
+      if (providersResult.status === 'fulfilled' && Array.isArray(providersResult.value)) {
+        for (const item of providersResult.value) {
+          const providerId = normalizeProviderAlias(String(item.id || item.type || '').trim());
+          const providerKey = providerId.toLowerCase();
+          const authMode = String(item.authMode || '').trim();
+          const apiProtocol = String(item.apiProtocol || '').trim();
+          const isOAuthProvider = authMode === 'oauth_browser'
+            || authMode === 'oauth_device'
+            || apiProtocol === 'openai-codex-responses'
+            || providerKey === 'openai-codex';
+          if (!providerId || item.enabled === false || (item.hasKey !== true && !isOAuthProvider)) continue;
+          usableProviders.add(providerId);
+        }
+      }
+
       const deduped = Array.from(new Map(opts.map((o) => [o.value, o])).values())
+        .filter((opt) => {
+          if (usableProviders.size === 0) return true;
+          const provider = normalizeProviderAlias(String(opt.value || '').split('/')[0] || '');
+          return provider ? usableProviders.has(provider) : true;
+        })
         .sort((a, b) => a.label.localeCompare(b.label));
       setModelOptions(deduped);
     } catch {
@@ -423,27 +485,18 @@ export function ChatInput({
         return;
       }
 
-      // Runtime guard: also issue /model command so current session execution context updates immediately.
-      try {
-        await invokeIpc('gateway:rpc', 'chat.send', {
-          sessionKey: targetSessionKey,
-          message: `/model ${toModel}`,
-          deliver: false,
-          idempotencyKey: crypto.randomUUID(),
-        }, 45_000);
-      } catch (err) {
-        console.warn('[ChatInput] /model command failed after sessions.patch:', err);
-      }
-
       useChatStore.setState((state) => ({
         sessions: state.sessions.map((session) => (
-          session.key === targetSessionKey ? { ...session, model: toModel } : session
+          session.key === targetSessionKey ? { ...session, model: toModel, modelProvider: toProvider } : session
         )),
       }));
       await loadSessions();
       persistSessionPref(targetSessionKey, toModel, toProvider);
       setSelectedModel(toModel);
       setProviderFilter(toProvider);
+      window.dispatchEvent(new CustomEvent('axon:session-model-pref-updated', {
+        detail: { sessionKey: targetSessionKey, model: toModel, provider: toProvider },
+      }));
       toast.success(t('chatView.modelSwitchOk', {
         defaultValue: '已切换会话模型：{{model}}',
         model: toModel,
@@ -738,8 +791,20 @@ export function ChatInput({
 
   const allReady = attachments.length === 0 || attachments.every(a => a.status === 'ready');
   const hasFailedAttachments = attachments.some((a) => a.status === 'error');
-  const canSend = (input.trim() || attachments.length > 0) && allReady && !disabled && !sending;
+  const canSend = (input.trim() || attachments.length > 0) && allReady && !disabled;
   const canStop = sending && !disabled && !!onStop;
+  const displayActivityLabel = useCallback((value: string | null) => {
+    if (!value) return t('composer.running', { defaultValue: '任务执行中，等待模型返回' });
+    if (value.startsWith('activityTool:')) {
+      return t('composer.activityTool', {
+        tool: value.slice('activityTool:'.length) || 'tool',
+        defaultValue: '正在执行工具：{{tool}}',
+      });
+    }
+    return t(`composer.${value}`, {
+      defaultValue: t('composer.running', { defaultValue: '任务执行中，等待模型返回' }),
+    });
+  }, [t]);
 
   const handleSend = useCallback(() => {
     if (!canSend) return;
@@ -1006,7 +1071,7 @@ export function ChatInput({
                   : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10 hover:text-foreground"
               )}
               onClick={pickFiles}
-              disabled={disabled || sending}
+              disabled={disabled}
               title={t('composer.attachFiles')}
             >
               <Paperclip className="h-4 w-4" />
@@ -1039,8 +1104,8 @@ export function ChatInput({
 
             {/* Send Button */}
             <Button
-              onClick={sending ? handleStop : handleSend}
-              disabled={sending ? !canStop : !canSend}
+              onClick={sending && !input.trim() && attachments.length === 0 ? handleStop : handleSend}
+              disabled={sending && !input.trim() && attachments.length === 0 ? !canStop : !canSend}
               size="icon"
               className={cn(
                 "shrink-0 h-10 w-10 rounded-full transition-colors",
@@ -1053,15 +1118,61 @@ export function ChatInput({
                     : 'text-muted-foreground/50 hover:bg-transparent bg-transparent'
               )}
               variant="ghost"
-              title={sending ? t('composer.stop') : t('composer.send')}
+              title={sending && !input.trim() && attachments.length === 0 ? t('composer.stop') : t('composer.send')}
             >
-              {sending ? (
+              {sending && !input.trim() && attachments.length === 0 ? (
                 <Square className="h-4 w-4" fill="currentColor" />
               ) : (
                 <SendHorizontal className="h-[18px] w-[18px]" strokeWidth={2} />
               )}
             </Button>
           </div>
+          {(sending || queuedCount > 0 || activityLabel) && (
+            <div className={cn(
+              'mt-2 flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-[11px]',
+              isChatPage
+                ? 'bg-[#0f172a]/80 text-[#94a3b8] border border-[#334155]'
+                : 'bg-black/[0.03] dark:bg-white/[0.04] text-muted-foreground border border-black/10 dark:border-white/10',
+            )}>
+              <span className="inline-flex items-center gap-2">
+                {sending && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#60a5fa]" />}
+                {displayActivityLabel(activityLabel)}
+              </span>
+              {queuedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setQueueExpanded((value) => !value)}
+                  className="shrink-0 inline-flex items-center gap-1 rounded-full bg-[#6366f1]/20 px-2 py-0.5 text-[#c4b5fd] hover:bg-[#6366f1]/30 transition-colors"
+                  title={t('composer.toggleQueue', { defaultValue: '展开/收起待执行队列' })}
+                >
+                  {t('composer.queuedCount', { count: queuedCount, defaultValue: '队列 {{count}} 条' })}
+                  <ChevronDown className={cn('h-3 w-3 transition-transform', queueExpanded && 'rotate-180')} />
+                </button>
+              )}
+            </div>
+          )}
+          {queueExpanded && queuedCount > 0 && (
+            <div className={cn(
+              'mt-1 rounded-lg border px-3 py-2 text-[11px]',
+              isChatPage
+                ? 'bg-[#0b1120]/95 text-[#94a3b8] border-[#334155]'
+                : 'bg-black/[0.03] dark:bg-white/[0.04] text-muted-foreground border-black/10 dark:border-white/10',
+            )}>
+              <div className="mb-1 font-medium text-[#cbd5e1]">
+                {t('composer.queueTitle', { defaultValue: '待执行队列' })}
+              </div>
+              <div className="max-h-28 space-y-1 overflow-y-auto pr-1">
+                {messageQueue.map((item, index) => (
+                  <div key={item.id} className="flex items-start gap-2 rounded-md bg-white/[0.03] px-2 py-1">
+                    <span className="mt-0.5 shrink-0 text-[#818cf8]">{index + 1}</span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {item.text?.trim() || t('composer.queuedItem', { index: index + 1, defaultValue: '排队消息 {{index}}' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {pendingModelSwitch && (
             <div className={cn(
               'mt-3 rounded-lg border px-3 py-2.5',

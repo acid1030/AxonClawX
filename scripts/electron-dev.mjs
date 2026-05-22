@@ -51,8 +51,12 @@ async function main() {
       },
     });
 
-    electron.on('exit', (code) => {
+    electron.on('exit', (code, signal) => {
       try { vite.kill('SIGTERM'); } catch {}
+      if (signal) {
+        console.error(`[electron-dev] electron exited by signal ${signal}`);
+        process.exit(1);
+      }
       process.exit(code ?? 0);
     });
   };

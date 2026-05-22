@@ -10,7 +10,7 @@ import { useChatStore } from '@/stores/chat';
 import { useGatewayStore } from '@/stores/gateway';
 import { useAgentsStore } from '@/stores/agents';
 import { motion } from 'framer-motion';
-import { ChevronDown, Bot, Wrench, Lightbulb, RefreshCw, File, LightbulbOff, Pencil, History, Trash2, Star } from 'lucide-react';
+import { ChevronDown, Bot, Wrench, Lightbulb, RefreshCw, File, LightbulbOff, Pencil, History, Trash2, Star, FolderOpen, Loader2, ListChecks } from 'lucide-react';
 import { MarkdownContent } from './MarkdownContent';
 import { TypewriterMarkdown } from './TypewriterMarkdown';
 import { ChatInput, AttachmentPreview } from '@/pages/Chat/ChatInput';
@@ -18,6 +18,7 @@ import type { FileAttachment } from '@/pages/Chat/ChatInput';
 import { extractImages, extractText, extractThinking, extractFilePathsFromText, stripFilePathsFromText } from '@/pages/Chat/message-utils';
 import { invokeIpc } from '@/lib/api-client';
 import type { RawMessage, AttachedFileMeta } from '@/stores/chat';
+import { isInternalSessionTitle, isNamedAgentMainSession, isPrimaryChatSession } from '@/stores/chat/session-utils';
 
 // 可折叠组件
 const CollapsibleBlock: React.FC<{
@@ -56,15 +57,10 @@ function getAgentIdFromSessionKey(sessionKey: string): string | null {
   return parts[1] || null;
 }
 
-function isPrimaryChatSessionKey(sessionKey: string): boolean {
-  if (!sessionKey.startsWith('agent:')) return true;
-  const parts = sessionKey.split(':');
-  return !parts.includes('subagent');
-}
-
 function sanitizeSessionLabel(label: string): string {
   const text = String(label || '').trim();
   if (!text) return '';
+  if (isInternalSessionTitle(text)) return '';
   const blockedPatterns = [
     /<relevant-memories>/i,
     /treat every memory below as untrusted/i,
@@ -174,11 +170,57 @@ export const ChatView: React.FC = () => {
   const [aliasEditSessionKey, setAliasEditSessionKey] = useState<string | null>(null);
   const [aliasEditValue, setAliasEditValue] = useState('');
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [fileContextMenu, setFileContextMenu] = useState<{
+    x: number;
+    y: number;
+    file: AttachedFileMeta;
+  } | null>(null);
   const [sessionLoadingAnim, setSessionLoadingAnim] = useState(false);
 
   // 附件状态镜像，由 ChatInput 通过 onAttachmentsChange 同步
   const [viewAttachments, setViewAttachments] = useState<FileAttachment[]>([]);
   const removeAttachmentRef = useRef<(id: string) => void>(() => {});
+
+  const openAttachedFile = useCallback(async (filePath?: string) => {
+    if (!filePath) return;
+    try {
+      await invokeIpc('shell:openPath', filePath);
+    } catch (e) {
+      console.error(t('chatView.openFileFailed'), e);
+    }
+  }, [t]);
+
+  const openAttachedFileFolder = useCallback(async (filePath?: string) => {
+    if (!filePath) return;
+    try {
+      await invokeIpc('shell:showItemInFolder', filePath);
+    } catch (e) {
+      console.error(t('chatView.openFileFolderFailed', { defaultValue: '打开文件目录失败:' }), e);
+    }
+  }, [t]);
+
+  const openFileMenu = useCallback((event: React.MouseEvent, file: AttachedFileMeta) => {
+    if (!file.filePath) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setFileContextMenu({ x: event.clientX, y: event.clientY, file });
+  }, []);
+
+  useEffect(() => {
+    if (!fileContextMenu) return undefined;
+    const close = () => setFileContextMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [fileContextMenu]);
   const handleAttachmentsChange = useCallback((atts: FileAttachment[], removeFn: (id: string) => void) => {
     setViewAttachments(atts);
     removeAttachmentRef.current = removeFn;
@@ -197,6 +239,11 @@ export const ChatView: React.FC = () => {
     sessionLastActivity,
     streamingText,
     streamingMessage,
+    streamingTools,
+    pendingFinal,
+    activityLabel,
+    messageQueue,
+    runMonitor,
     error,
     clearError,
     switchSession,
@@ -214,6 +261,19 @@ export const ChatView: React.FC = () => {
   const agents = useAgentsStore((s) => s.agents);
   const resolveAgentLabel = useAgentsStore((s) => s.resolveLabel);
   const activeSessionModel = sessions.find((s) => s.key === currentSessionKey)?.model || '';
+  const currentSessionQueue = messageQueue.filter((item) => !item.sessionKey || item.sessionKey === currentSessionKey);
+  const displayActivityLabel = useCallback((value?: string | null) => {
+    if (!value) return t('composer.running', { defaultValue: '任务执行中，等待模型返回' });
+    if (value.startsWith('activityTool:')) {
+      return t('composer.activityTool', {
+        tool: value.slice('activityTool:'.length) || 'tool',
+        defaultValue: '正在执行工具：{{tool}}',
+      });
+    }
+    return t(`composer.${value}`, {
+      defaultValue: t('composer.running', { defaultValue: '任务执行中，等待模型返回' }),
+    });
+  }, [t]);
 
   // 持久化会话别名：刷新/重启后仍保留
   useEffect(() => {
@@ -308,7 +368,7 @@ export const ChatView: React.FC = () => {
     const normalizeProvider = (provider: string) => {
       const next = String(provider || '').trim();
       if (!next) return '';
-      return next.toLowerCase() === 'openai-codex' ? 'openai' : next;
+      return next;
     };
     const normalizeModelAlias = (modelText: string) => {
       const raw = String(modelText || '').trim();
@@ -316,11 +376,26 @@ export const ChatView: React.FC = () => {
       if (!raw.includes('/')) return raw;
       const [provider, ...rest] = raw.split('/');
       if (!provider || rest.length === 0) return raw;
-      return `${normalizeProvider(provider)}/${rest.join('/')}`;
+      let leaf = rest.join('/').replace(/cdoex/gi, 'codex');
+      if (/^\d+(?:\.\d+)?-codex$/i.test(leaf)) {
+        leaf = `gpt-${leaf}`;
+      }
+      if (/^gpt-5\.4$/i.test(leaf)) {
+        leaf = 'gpt-5.4-mini';
+      }
+      const normalizedProvider = normalizeProvider(provider);
+      const providerForModel = normalizedProvider.toLowerCase() === 'openai' && /^gpt-5\.(?:3-codex|4-mini|5)$/i.test(leaf)
+        ? 'openai-codex'
+        : normalizedProvider;
+      return `${providerForModel}/${leaf}`;
     };
     const normalizeShort = (value: string) => {
       const model = String(value || '').trim();
       return model.includes('/') ? model.split('/').slice(1).join('/') : model;
+    };
+    const providerFromModel = (value: string) => {
+      const model = String(value || '').trim();
+      return model.includes('/') ? String(model.split('/')[0] || '').trim() : '';
     };
     const isSameModel = (a: string, b: string) => normalizeShort(a) === normalizeShort(b);
 
@@ -342,13 +417,12 @@ export const ChatView: React.FC = () => {
       useChatStore.setState((state) => ({
         sessions: state.sessions.map((session) => (
           session.key === currentSessionKey
-            ? { ...session, model: preferredModel }
+            ? { ...session, model: preferredModel, modelProvider: providerFromModel(preferredModel) }
             : session
         )),
       }));
     }
 
-    const shortModel = preferredModel.includes('/') ? preferredModel.split('/').slice(1).join('/') : preferredModel;
     void (async () => {
       try {
         await invokeIpc('gateway:rpc', 'sessions.patch', {
@@ -359,37 +433,11 @@ export const ChatView: React.FC = () => {
         // ignore patch failure, command fallback below is the runtime guard
       }
 
-      const sendModelCommand = async (modelText: string) => {
-        const value = String(modelText || '').trim();
-        if (!value) return false;
-        try {
-          const result = await invokeIpc<{ success?: boolean; ok?: boolean }>(
-            'gateway:rpc',
-            'chat.send',
-            {
-              sessionKey: currentSessionKey,
-              message: `/model ${value}`,
-              deliver: false,
-              idempotencyKey: crypto.randomUUID(),
-            },
-            45000,
-          );
-          return !(result && (result.success === false || result.ok === false));
-        } catch {
-          return false;
-        }
-      };
-
-      const ok = await sendModelCommand(preferredModel);
-      if (!ok && shortModel && shortModel !== preferredModel) {
-        await sendModelCommand(shortModel);
-      }
-
       await loadSessions().catch(() => undefined);
       useChatStore.setState((state) => ({
         sessions: state.sessions.map((session) => (
           session.key === currentSessionKey
-            ? { ...session, model: preferredModel }
+            ? { ...session, model: preferredModel, modelProvider: providerFromModel(preferredModel) }
             : session
         )),
       }));
@@ -410,8 +458,7 @@ export const ChatView: React.FC = () => {
     if (alias) return alias;
 
     const agentId = getAgentIdFromSessionKey(sessionKey);
-    const isMainSession = sessionKey.endsWith(':main');
-    if (agentId && isMainSession) {
+    if (agentId && isNamedAgentMainSession(sessionKey)) {
       const agentName = sanitizeSessionLabel(agentLabelById[agentId] || '');
       if (agentName) return agentName;
     }
@@ -425,27 +472,21 @@ export const ChatView: React.FC = () => {
   }, [agentLabelById, sessionLabels, sessions]);
 
   const visibleSessions = useMemo(() => {
-    const now = Date.now();
-    const cutoff = now - 7 * 24 * 60 * 60 * 1000;
     return [...sessions]
       .filter((session) => {
-        if (!isPrimaryChatSessionKey(session.key)) return false;
-        if (session.key === currentSessionKey) return true;
+        if (!isPrimaryChatSession(session)) return false;
         const activity = sessionLastActivity[session.key] ?? session.updatedAt ?? 0;
         const hasReadableTitle = !!sanitizeSessionLabel(
           sessionLabels[session.key] || session.displayName || session.label || '',
         );
-        if (activity <= 0 && !hasReadableTitle) {
-          return false;
-        }
-        return activity >= cutoff;
+        return session.key === currentSessionKey || hasReadableTitle || activity > 0;
       })
       .sort((a, b) => {
         const at = sessionLastActivity[a.key] ?? a.updatedAt ?? 0;
         const bt = sessionLastActivity[b.key] ?? b.updatedAt ?? 0;
         return bt - at;
       });
-  }, [sessions, currentSessionKey, sessionLastActivity]);
+  }, [sessions, currentSessionKey, sessionLastActivity, sessionLabels]);
 
   const openAliasEdit = (sessionKey: string) => {
     const current = getSessionDisplayName(sessionKey);
@@ -931,6 +972,43 @@ export const ChatView: React.FC = () => {
         </div>
       )}
 
+      {(sending || pendingFinal || activityLabel || streamingTools.length > 0 || currentSessionQueue.length > 0 || runMonitor) && (
+        <div className="flex-shrink-0 px-6 py-2 border-b border-[#334155]/70 bg-[#0b1120]/80">
+          <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 text-[12px] text-[#94a3b8]">
+            <span className="inline-flex items-center gap-2 rounded-full border border-[#334155] bg-[#111827] px-3 py-1 text-[#cbd5e1]">
+              {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#60a5fa]" /> : <ListChecks className="h-3.5 w-3.5 text-[#60a5fa]" />}
+              {displayActivityLabel(activityLabel || runMonitor?.lastEventLabel)}
+            </span>
+            {runMonitor && (
+              <span className="rounded-full border border-[#334155] bg-[#111827] px-3 py-1">
+                {t('composer.runStatus', { defaultValue: '状态' })}: {runMonitor.status}
+                <span className="ml-2 text-[#64748b]">
+                  {t('composer.idleSeconds', {
+                    seconds: Math.round((runMonitor.idleMs || 0) / 1000),
+                    defaultValue: '空闲 {{seconds}}s',
+                  })}
+                </span>
+              </span>
+            )}
+            {streamingTools.slice(-3).map((tool) => (
+              <span
+                key={tool.toolCallId || tool.id || tool.name}
+                className="inline-flex items-center gap-1 rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-cyan-200"
+              >
+                <Wrench className="h-3 w-3" />
+                {tool.name}
+                <span className="text-cyan-200/60">{tool.status}</span>
+              </span>
+            ))}
+            {currentSessionQueue.length > 0 && (
+              <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-amber-200">
+                {t('composer.queuedCount', { count: currentSessionQueue.length, defaultValue: '队列 {{count}} 条' })}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 设置别名弹层 */}
       {aliasEditOpen && (
         <div
@@ -1071,12 +1149,7 @@ export const ChatView: React.FC = () => {
                     if (isImage && images.length > 0) return null;
                     const canOpen = !!file.filePath;
                     const openFile = async () => {
-                      if (!file.filePath) return;
-                      try {
-                        await invokeIpc('shell:openPath', file.filePath);
-                      } catch (e) {
-                        console.error(t('chatView.openFileFailed'), e);
-                      }
+                      await openAttachedFile(file.filePath);
                     };
                     if (isImage) {
                       const previewSrc = file.preview || (file.filePath?.startsWith('/assets/') ? file.filePath : null);
@@ -1085,8 +1158,9 @@ export const ChatView: React.FC = () => {
                           type="button"
                           key={fi}
                           onClick={() => setLightboxSrc(previewSrc)}
+                          onContextMenu={(event) => openFileMenu(event, file)}
                           className="rounded-lg overflow-hidden border border-[#334155]"
-                          title={t('chatView.clickToZoom')}
+                          title={file.filePath || t('chatView.clickToZoom')}
                         >
                           <img
                             src={previewSrc}
@@ -1099,7 +1173,9 @@ export const ChatView: React.FC = () => {
                           type="button"
                           key={fi}
                           onClick={openFile}
+                          onContextMenu={(event) => openFileMenu(event, file)}
                           className="w-24 h-24 rounded-lg border border-[#334155] bg-[#1e293b] flex items-center justify-center"
+                          title={file.filePath || file.fileName}
                         >
                           <File className="w-8 h-8 text-[#64748b]" />
                         </button>
@@ -1110,6 +1186,7 @@ export const ChatView: React.FC = () => {
                         type="button"
                         key={fi}
                         onClick={openFile}
+                        onContextMenu={(event) => openFileMenu(event, file)}
                         disabled={!canOpen}
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg border border-[#334155] bg-[#1e293b] text-sm text-[#e2e8f0] ${canOpen ? 'cursor-pointer hover:bg-[#334155]' : 'opacity-80'}`}
                         title={file.filePath || file.fileName}
@@ -1355,6 +1432,40 @@ export const ChatView: React.FC = () => {
           {gatewayStatus.pid != null ? ` | pid: ${gatewayStatus.pid}` : ''}
         </span>
       </div>
+
+      {fileContextMenu && (
+        <div
+          className="fixed z-[120] min-w-[180px] overflow-hidden rounded-xl border border-[#475569] bg-[#0f172a] py-1 text-sm text-[#e2e8f0] shadow-2xl"
+          style={{ left: fileContextMenu.x, top: fileContextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#1e293b]"
+            onClick={() => {
+              const filePath = fileContextMenu.file.filePath;
+              setFileContextMenu(null);
+              void openAttachedFile(filePath);
+            }}
+          >
+            <File className="h-4 w-4 text-[#93c5fd]" />
+            <span>{t('chatView.openFile', { defaultValue: '打开文件' })}</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#1e293b]"
+            onClick={() => {
+              const filePath = fileContextMenu.file.filePath;
+              setFileContextMenu(null);
+              void openAttachedFileFolder(filePath);
+            }}
+          >
+            <FolderOpen className="h-4 w-4 text-[#fbbf24]" />
+            <span>{t('chatView.openFileFolder', { defaultValue: '打开文件目录' })}</span>
+          </button>
+        </div>
+      )}
 
       {/* 图片放大预览 */}
       {lightboxSrc && (

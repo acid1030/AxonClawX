@@ -18,6 +18,7 @@ const CORE_MENU: MenuItem[] = [
   { id: 'model-config', icon: Icons.model, labelKey: 'modelConfig', labelFallback: 'Configuration' },
   { id: 'channel-config', icon: Icons.channel, labelKey: 'channelConfig', labelFallback: 'Channel' },
   { id: 'skill-config', icon: Icons.skill, labelKey: 'skills', labelFallback: 'Plugins' },
+  { id: 'resource-library', icon: Icons.resourceLibrary, labelKey: 'resourceLibrary', labelFallback: 'Resources' },
   { id: 'system-config', icon: Icons.system, labelKey: 'settings', labelFallback: 'System Settings' },
 ];
 

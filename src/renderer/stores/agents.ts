@@ -6,7 +6,7 @@
  *   3. rpc('agent.identity.get') — 获取每个代理的身份信息
  */
 import { create } from 'zustand';
-import { useGatewayStore } from './gateway';
+import { hostApiFetch } from '@/lib/host-api';
 import type { ChannelType } from '@/types/channel';
 import type { AgentSummary, AgentsSnapshot } from '@/types/agent';
 
@@ -49,7 +49,11 @@ interface AgentsState {
 }
 
 function rpc<T = unknown>(method: string, params?: unknown): Promise<T> {
-  return useGatewayStore.getState().rpc<T>(method, params);
+  return hostApiFetch<T>('/api/v1/gw/proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ method, params: params ?? {} }),
+  });
 }
 
 function buildAgentsFromRpc(

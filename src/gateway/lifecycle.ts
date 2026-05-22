@@ -3,7 +3,7 @@
  * Provides functions to start and stop the OpenClaw Gateway process
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execFileSync } from 'child_process';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import os from 'os';
@@ -81,6 +81,156 @@ class GatewayLifecycleManager extends EventEmitter {
     };
   }
 
+  private detectSystemProxyEnv(): Record<string, string> {
+    const existingProxy = process.env.HTTPS_PROXY
+      || process.env.https_proxy
+      || process.env.HTTP_PROXY
+      || process.env.http_proxy
+      || process.env.ALL_PROXY
+      || process.env.all_proxy;
+    if (existingProxy) return {};
+    if (process.platform !== 'darwin') return {};
+
+    try {
+      const raw = execFileSync('/usr/sbin/scutil', ['--proxy'], {
+        encoding: 'utf8',
+        timeout: 2000,
+      });
+      const readValue = (key: string): string => {
+        const match = raw.match(new RegExp(`${key}\\s*:\\s*([^\\n]+)`));
+        return String(match?.[1] || '').trim();
+      };
+      const readEnabled = (key: string): boolean => readValue(key) === '1';
+
+      const httpsHost = readValue('HTTPSProxy');
+      const httpsPort = readValue('HTTPSPort');
+      const httpHost = readValue('HTTPProxy');
+      const httpPort = readValue('HTTPPort');
+      const socksHost = readValue('SOCKSProxy');
+      const socksPort = readValue('SOCKSPort');
+
+      const httpProxy = readEnabled('HTTPEnable') && httpHost && httpPort
+        ? `http://${httpHost}:${httpPort}`
+        : '';
+      const httpsProxy = readEnabled('HTTPSEnable') && httpsHost && httpsPort
+        ? `http://${httpsHost}:${httpsPort}`
+        : httpProxy;
+      const socksProxy = readEnabled('SOCKSEnable') && socksHost && socksPort
+        ? `socks5://${socksHost}:${socksPort}`
+        : '';
+      const proxy = httpsProxy || httpProxy || socksProxy;
+      if (!proxy) return {};
+
+      return {
+        HTTP_PROXY: httpProxy || proxy,
+        HTTPS_PROXY: httpsProxy || proxy,
+        ALL_PROXY: proxy,
+        http_proxy: httpProxy || proxy,
+        https_proxy: httpsProxy || proxy,
+        all_proxy: proxy,
+        NO_PROXY: process.env.NO_PROXY || process.env.no_proxy || '127.0.0.1,localhost,::1',
+        no_proxy: process.env.no_proxy || process.env.NO_PROXY || '127.0.0.1,localhost,::1',
+      };
+    } catch (err) {
+      this.emit('log', 'warn', `System proxy detection skipped: ${String(err)}`);
+      return {};
+    }
+  }
+
+  private quoteShellEnvValue(value: string): string {
+    return `'${String(value).replace(/'/g, `'\\''`)}'`;
+  }
+
+  private mergeNodeOptions(current: string | undefined, requiredFlag: string): string {
+    const value = String(current || '').trim();
+    const escaped = requiredFlag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`(^|\\s)${escaped}(\\s|$)`).test(value)) return value;
+    return value ? `${value} ${requiredFlag}` : requiredFlag;
+  }
+
+  private readLaunchAgentEnvValue(raw: string, key: string): string | undefined {
+    const match = raw.match(new RegExp(`^export\\s+${key}=(['"]?)(.*?)\\1\\s*$`, 'm'));
+    return match?.[2];
+  }
+
+  private upsertLaunchAgentEnvLine(raw: string, key: string, value: string): { raw: string; changed: boolean } {
+    const line = `export ${key}=${this.quoteShellEnvValue(value)}`;
+    const pattern = new RegExp(`^export\\s+${key}=.*$`, 'm');
+    if (pattern.test(raw)) {
+      const next = raw.replace(pattern, line);
+      return { raw: next, changed: next !== raw };
+    }
+    const separator = raw.endsWith('\n') ? '' : '\n';
+    return { raw: `${raw}${separator}${line}\n`, changed: true };
+  }
+
+  /**
+   * OpenClaw can run Gateway as a macOS LaunchAgent. In that mode restarting
+   * AxonClawX does not recreate the Gateway process, so proxy env injected into
+   * our child process is ignored. Keep the LaunchAgent env in sync before
+   * starting/probing the Gateway.
+   */
+  private ensureLaunchAgentProxyEnv(proxyEnv: Record<string, string>): boolean {
+    if (process.platform !== 'darwin') return false;
+    if (!proxyEnv.HTTPS_PROXY && !proxyEnv.HTTP_PROXY && !proxyEnv.ALL_PROXY) return false;
+
+    const envPath = path.join(os.homedir(), '.openclaw', 'service-env', 'ai.openclaw.gateway.env');
+    if (!fs.existsSync(envPath)) return false;
+
+    let raw = fs.readFileSync(envPath, 'utf8');
+    let changed = false;
+    const updates: Record<string, string> = {
+      ...proxyEnv,
+      NODE_OPTIONS: this.mergeNodeOptions(this.readLaunchAgentEnvValue(raw, 'NODE_OPTIONS'), '--use-env-proxy'),
+    };
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (!value) continue;
+      const result = this.upsertLaunchAgentEnvLine(raw, key, value);
+      raw = result.raw;
+      changed ||= result.changed;
+    }
+
+    if (!changed) return false;
+    fs.writeFileSync(envPath, raw, 'utf8');
+    this.emit('log', 'warn', `Updated OpenClaw LaunchAgent proxy env: ${envPath}`);
+    return true;
+  }
+
+  private restartLaunchAgentGateway(): void {
+    if (process.platform !== 'darwin') return;
+    const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+    if (uid == null) return;
+    try {
+      execFileSync('/bin/launchctl', ['kickstart', '-k', `gui/${uid}/ai.openclaw.gateway`], {
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      this.emit('log', 'warn', 'Restarted OpenClaw Gateway LaunchAgent to apply proxy env.');
+    } catch (err) {
+      this.emit('log', 'warn', `LaunchAgent restart skipped: ${String(err)}`);
+    }
+  }
+
+  private withEnvProxyNodeOptions(env: Record<string, string | undefined>): Record<string, string | undefined> {
+    const hasProxy = !!(
+      env.HTTPS_PROXY
+      || env.https_proxy
+      || env.HTTP_PROXY
+      || env.http_proxy
+      || env.ALL_PROXY
+      || env.all_proxy
+    );
+    if (!hasProxy) return env;
+
+    const current = String(env.NODE_OPTIONS || '').trim();
+    if (/(^|\s)--use-env-proxy(\s|$)/.test(current)) return env;
+    return {
+      ...env,
+      NODE_OPTIONS: current ? `${current} --use-env-proxy` : '--use-env-proxy',
+    };
+  }
+
   /**
    * Start the OpenClaw Gateway
    */
@@ -131,21 +281,34 @@ class GatewayLifecycleManager extends EventEmitter {
       ).join(path.delimiter);
       this.emit('log', 'info', `Gateway command: ${resolved.command}`);
       this.emit('log', 'info', `Gateway PATH: ${nextPath}`);
+      const proxyEnv = this.detectSystemProxyEnv();
+      if (proxyEnv.HTTPS_PROXY || proxyEnv.ALL_PROXY) {
+        this.emit('log', 'info', `Gateway proxy: ${proxyEnv.HTTPS_PROXY || proxyEnv.ALL_PROXY}`);
+      }
+      if (this.ensureLaunchAgentProxyEnv(proxyEnv)) {
+        this.restartLaunchAgentGateway();
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      const gatewayEnv = this.withEnvProxyNodeOptions({
+        ...process.env,
+        ...proxyEnv,
+        PATH: nextPath,
+        // Ensure Gateway uses the correct port
+        OPENCLAW_GATEWAY_PORT: String(this.port),
+        // Allow memory-lancedb plugin to use Zhipu AI (BigModel) embedding API
+        // when OPENAI_BASE_URL is not already set externally
+        ...(process.env.OPENAI_BASE_URL ? {} : {
+          OPENAI_BASE_URL: 'https://open.bigmodel.cn/api/paas/v4',
+        }),
+        ...(this.configHomeOverride ? { HOME: this.configHomeOverride } : {}),
+      });
+      if (gatewayEnv.NODE_OPTIONS && String(gatewayEnv.NODE_OPTIONS).includes('--use-env-proxy')) {
+        this.emit('log', 'info', 'Gateway Node env proxy enabled');
+      }
 
       this.process = spawn(resolved.command, ['gateway', 'run', '--compact'], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: {
-          ...process.env,
-          PATH: nextPath,
-          // Ensure Gateway uses the correct port
-          OPENCLAW_GATEWAY_PORT: String(this.port),
-          // Allow memory-lancedb plugin to use Zhipu AI (BigModel) embedding API
-          // when OPENAI_BASE_URL is not already set externally
-          ...(process.env.OPENAI_BASE_URL ? {} : {
-            OPENAI_BASE_URL: 'https://open.bigmodel.cn/api/paas/v4',
-          }),
-          ...(this.configHomeOverride ? { HOME: this.configHomeOverride } : {}),
-        },
+        env: gatewayEnv,
       });
       const child = this.process;
 

@@ -146,35 +146,128 @@ export function extractMediaRefs(message: RawMessage | unknown): Array<{ filePat
   return refs;
 }
 
-/**
- * Extract image attachments from a message.
- * Returns array of { mimeType, data } for base64 images.
- */
-export function extractImages(message: RawMessage | unknown): Array<{ mimeType: string; data: string }> {
-  if (!message || typeof message !== 'object') return [];
-  const msg = message as Record<string, unknown>;
-  const content = msg.content;
+function mimeFromImageRef(value: string, fallback = 'image/png'): string {
+  const clean = value.split(/[?#]/)[0].toLowerCase();
+  if (clean.endsWith('.jpg') || clean.endsWith('.jpeg')) return 'image/jpeg';
+  if (clean.endsWith('.webp')) return 'image/webp';
+  if (clean.endsWith('.gif')) return 'image/gif';
+  if (clean.endsWith('.svg')) return 'image/svg+xml';
+  if (clean.endsWith('.avif')) return 'image/avif';
+  if (clean.endsWith('.bmp')) return 'image/bmp';
+  if (clean.endsWith('.png')) return 'image/png';
+  return fallback;
+}
 
-  if (!Array.isArray(content)) return [];
+function isImageRef(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const raw = value.trim();
+  if (!raw) return false;
+  if (raw.startsWith('data:image/')) return true;
+  if (/^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif|bmp)([?#].*)?$/i.test(raw)) return true;
+  if (/^(\/|~\/|[A-Za-z]:\\).+\.(png|jpe?g|webp|gif|svg|avif|bmp)$/i.test(raw)) return true;
+  return false;
+}
 
-  const images: Array<{ mimeType: string; data: string }> = [];
-  for (const block of content as ContentBlock[]) {
-    if (block.type === 'image') {
-      // Path 1: Anthropic source-wrapped format
-      if (block.source) {
-        const src = block.source;
-        if (src.type === 'base64' && src.media_type && src.data) {
-          images.push({ mimeType: src.media_type, data: src.data });
-        }
-      }
-      // Path 2: Flat format from Gateway tool results {data, mimeType}
-      else if (block.data) {
-        images.push({ mimeType: block.mimeType || 'image/jpeg', data: block.data });
-      }
+function pushImageRef(
+  images: Array<{ mimeType: string; data?: string; url?: string }>,
+  value: string,
+  mimeHint?: string,
+) {
+  const raw = value.trim();
+  if (!raw) return;
+  const mimeType = mimeHint || mimeFromImageRef(raw);
+  if (raw.startsWith('data:image/')) {
+    const match = raw.match(/^data:([^;]+);base64,(.+)$/i);
+    if (match?.[2]) {
+      images.push({ mimeType: match[1] || mimeType, data: match[2] });
+    } else {
+      images.push({ mimeType, url: raw });
+    }
+    return;
+  }
+  images.push({ mimeType, url: raw });
+}
+
+function collectImagesFromValue(
+  value: unknown,
+  images: Array<{ mimeType: string; data?: string; url?: string }>,
+  depth = 0,
+) {
+  if (depth > 6 || value == null) return;
+
+  if (typeof value === 'string') {
+    const markdownImage = /!\[[^\]]*\]\(([^)]+)\)/g;
+    let match;
+    while ((match = markdownImage.exec(value)) !== null) {
+      if (isImageRef(match[1])) pushImageRef(images, match[1]);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectImagesFromValue(item, images, depth + 1);
+    return;
+  }
+
+  if (typeof value !== 'object') return;
+  const record = value as Record<string, unknown>;
+  const type = String(record.type || '').toLowerCase();
+
+  if (type === 'image') {
+    const source = record.source && typeof record.source === 'object'
+      ? record.source as Record<string, unknown>
+      : null;
+    const sourceType = String(source?.type || '').toLowerCase();
+    const sourceMime = typeof source?.media_type === 'string' ? source.media_type : undefined;
+    if (sourceType === 'base64' && typeof source?.data === 'string') {
+      images.push({ mimeType: sourceMime || 'image/png', data: source.data });
+    }
+    if (typeof source?.url === 'string' && isImageRef(source.url)) {
+      pushImageRef(images, source.url, sourceMime);
+    }
+    if (typeof source?.path === 'string' && isImageRef(source.path)) {
+      pushImageRef(images, source.path, sourceMime);
+    }
+    const mimeType = typeof record.mimeType === 'string' ? record.mimeType : typeof record.mime_type === 'string' ? record.mime_type : 'image/png';
+    if (typeof record.data === 'string') {
+      if (isImageRef(record.data)) pushImageRef(images, record.data, mimeType);
+      else images.push({ mimeType, data: record.data });
     }
   }
 
-  return images;
+  for (const key of ['url', 'imageUrl', 'image_url', 'outputUrl', 'output_url', 'preview', 'src']) {
+    const ref = record[key];
+    if (isImageRef(ref)) pushImageRef(images, ref);
+  }
+  for (const key of ['filePath', 'file_path', 'path', 'outputPath', 'output_path', 'file']) {
+    const ref = record[key];
+    if (isImageRef(ref)) pushImageRef(images, ref);
+  }
+
+  for (const key of ['content', 'images', 'artifacts', 'files', 'outputs', 'result', 'results']) {
+    if (key in record) collectImagesFromValue(record[key], images, depth + 1);
+  }
+}
+
+/**
+ * Extract image attachments from a message.
+ * Supports base64, URL, local path, markdown image links and nested tool result artifacts.
+ */
+export function extractImages(message: RawMessage | unknown): Array<{ mimeType: string; data?: string; url?: string }> {
+  if (!message || typeof message !== 'object') return [];
+  const msg = message as Record<string, unknown>;
+  const images: Array<{ mimeType: string; data?: string; url?: string }> = [];
+  collectImagesFromValue(msg.content, images);
+  collectImagesFromValue(msg.images, images);
+  collectImagesFromValue(msg.artifacts, images);
+
+  const seen = new Set<string>();
+  return images.filter((img) => {
+    const key = img.url || `${img.mimeType}:${img.data?.slice(0, 80) || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**

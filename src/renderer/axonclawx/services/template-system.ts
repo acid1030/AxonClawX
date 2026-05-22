@@ -185,6 +185,10 @@ class TemplateSystem {
    * 安装在线模板到本地数据库
    */
   async installTemplate(template: WorkspaceTemplate): Promise<WorkspaceTemplate> {
+    const installed = await this.getInstalledTemplates();
+    const existing = installed.find(t => t.templateId === template.templateId && t.targetFile === template.targetFile);
+    if (existing) return existing;
+
     const dbData = {
       template_id: template.templateId,
       target_file: template.targetFile,

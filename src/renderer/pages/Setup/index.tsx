@@ -951,6 +951,8 @@ export function ProviderContent({
   const pendingOAuthRef = useRef<{ accountId: string; label: string } | null>(null);
   const oauthSubmittingRef = useRef(false);
   const oauthSuccessHandledRef = useRef(false);
+  const providerRestoreStartedRef = useRef(false);
+  const providerUserSelectedRef = useRef(false);
   const openCodexLoginWindow = useCallback(async (options?: { forceReauth?: boolean; url?: string; title?: string }) => {
     const forceReauth = Boolean(options?.forceReauth);
     const url = typeof options?.url === 'string' ? options.url : undefined;
@@ -1316,9 +1318,12 @@ export function ProviderContent({
 
   // On mount, try to restore previously configured provider
   useEffect(() => {
+    if (providerRestoreStartedRef.current) return;
+    providerRestoreStartedRef.current = true;
     let cancelled = false;
     (async () => {
       try {
+        if (selectedProvider || providerUserSelectedRef.current) return;
         const snapshot = await fetchProviderSnapshot();
         const statusMap = new Map(snapshot.statuses.map((status) => [status.id, status]));
         const setupProviderTypes = new Set<string>(providers.map((p) => p.id));
@@ -1328,7 +1333,7 @@ export function ProviderContent({
             && setupCandidates.find((account) => account.id === snapshot.defaultAccountId))
           || setupCandidates.find((account) => hasConfiguredCredentials(account, statusMap.get(account.id)))
           || setupCandidates[0];
-        if (preferred && !cancelled) {
+        if (preferred && !cancelled && !selectedProvider && !providerUserSelectedRef.current) {
           onSelectProvider(preferred.vendorId);
           setSelectedAccountId(preferred.id);
           const typeInfo = providers.find((p) => p.id === preferred.vendorId);
@@ -1338,7 +1343,7 @@ export function ProviderContent({
             `/api/providers/${encodeURIComponent(preferred.id)}/api-key`,
           )).apiKey;
           onApiKeyChange(storedKey || '');
-        } else if (!cancelled) {
+        } else if (!cancelled && !selectedProvider && !providerUserSelectedRef.current) {
           onConfiguredChange(false);
           onApiKeyChange('');
         }
@@ -1349,7 +1354,7 @@ export function ProviderContent({
       }
     })();
     return () => { cancelled = true; };
-  }, [onApiKeyChange, onConfiguredChange, onSelectProvider, providers]);
+  }, [onApiKeyChange, onConfiguredChange, onSelectProvider, providers, selectedProvider]);
 
   // When provider changes, load stored key + reset base URL
   useEffect(() => {
@@ -1733,6 +1738,7 @@ export function ProviderContent({
     && !useOAuthFlow;
 
   const handleSelectProvider = (providerId: string) => {
+    providerUserSelectedRef.current = true;
     onSelectProvider(providerId);
     setSelectedAccountId(null);
     onConfiguredChange(false);

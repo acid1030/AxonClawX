@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开视频工具 — 开源面板</title>
+<link rel="stylesheet" href="axonclawx-theme.css" />
+</head>
+<body>
+<nav>
+  <div class="inner">
+    <a href="index.html" class="logo">开<span style="color:var(--accent2)">视频</span>工具</a>
+    <div class="links">
+      <a href="index.html">面板首页</a>
+      <a href="https://axonclawx.cn/" target="_blank" rel="noopener noreferrer">AxonClawX</a>
+    </div>
+    <a class="gh-link" href="https://github.com/acid1030/AxonClawX" target="_blank" rel="noopener noreferrer">源码</a>
+  </div>
+</nav>
+
+<section class="hero page-sm">
+  <div class="container">
+    <h1><span class="gradient-text">开视频工具</span></h1>
+    <p class="sub mx-auto">精选开源：文生视频、工作流客户端、配音、剪辑与脚手架。点击图片进入单页详情（图示多为 GitHub 组织头像）。</p>
+    <div class="hero-badges">
+      <span class="badge"><span class="dot"></span>持续更新可按仓库 PR</span>
+      <span class="badge"><span class="dot"></span>外链需联网</span>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0">
+  <div class="container">
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">视频生成</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/wan22.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/Wan-Video.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Wan2.2（万相）</h3>
+        </div>
+        <p>阿里通义万相开源系列，支持文生视频与图生视频；社区热度高，适合作为国产视频大模型基线与工作流评测。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/cogvideo.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/zai-org.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">CogVideo / CogVideoX</h3>
+        </div>
+        <p>智谱开源视频生成路线，文档与微调资料较全，适合研究与产品原型。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/opensora.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/hpcaitech.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Open-Sora</h3>
+        </div>
+        <p>HPC-AI Tech 开源视频生成，强调效率与可变分辨率时长，适合做架构学习与二次训练实验。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/hunyuan-video.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/Tencent-Hunyuan.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">HunyuanVideo</h3>
+        </div>
+        <p>腾讯混元视频开源框架，可与 Hugging Face 生态衔接，便于企业内评估。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/lightx2v.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/ModelTC.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">LightX2V</h3>
+        </div>
+        <p>轻量推理底座，适配多类图像/视频任务，减轻环境碎片化。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/phantom.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/Phantom-video.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Phantom</h3>
+        </div>
+        <p>强调主角/物体在多镜头中的一致性，适合虚拟人短剧链路。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/longlive.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/NVlabs.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">LongLive</h3>
+        </div>
+        <p>NVIDIA 研究向更长序列互动视频生成，算力与环境门槛高。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/pyramid-flow.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/Pyramid-Flow.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Pyramid Flow</h3>
+        </div>
+        <p>金字塔流匹配路线开源实现，适合跟读新方法论文。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/ltx-video.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/Lightricks.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">LTX-Video</h3>
+        </div>
+        <p>Lightricks 开放视频生成相关权重与推理，便于对比商业产品开发流程。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/stability-gen.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/Stability-AI.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Stability generative-models</h3>
+        </div>
+        <p>Stability AI 开源生成管线代码仓库，historically 涵盖 Stable Video Diffusion 等与扩散视频相关的官方实现入口；具体模型权重与许可…</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">工作流与生图</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/comfyui.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/comfy-org.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">ComfyUI</h3>
+        </div>
+        <p>节点式扩散工作台，插件与工作流海量，是 Wan/SDXL/视频 I2V 工业化的事实标准之一。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/sd-webui.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/AUTOMATIC1111.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">SD WebUI (A1111)</h3>
+        </div>
+        <p>最经典的 Stable Diffusion 一键网页界面，插件与教程资源极度丰富。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/fooocus.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/lllyasviel.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Fooocus</h3>
+        </div>
+        <p>类 Midjourney 体验的本地出图工具，强调少旋钮、专注提示词。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/invokeai.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/invoke-ai.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">InvokeAI</h3>
+        </div>
+        <p>专业向 Creative Engine，画布与工作流管理完善，商用许可友好。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/animatediff.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/guoyww.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">AnimateDiff</h3>
+        </div>
+        <p>为 SD 注入时间维度的经典方案，诸多 Comfy 视频流程的基础模块来源。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/controlnet.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/lllyasviel.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">ControlNet</h3>
+        </div>
+        <p>结构化条件控制（边缘/深度/姿态等）与生图结合的里程碑项目，亦是大量 Comfy 节点与工作流的概念源头。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/instantid.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/InstantX.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">InstantID</h3>
+        </div>
+        <p>单张参考图保持人物身份特征的风格化/换脸向技术实现，可做角色一致性的图像侧补充。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/rembg.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/danielgatis.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">rembg</h3>
+        </div>
+        <p>一键人像/主体抠图 CLI 与库，便于给视频静帧或封面做透明素材。</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">脚手架</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/text2video-brave.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/bravekingzhang.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">text2video</h3>
+        </div>
+        <p>文案→配音→画面的一体化示例项目，易于 fork 做自己的流水线。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/text-to-vedio.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/guifaChild.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">text_to_vedio</h3>
+        </div>
+        <p>本地化小说推文/B 站短片实验仓库（命名保留历史拼写）。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/typetale.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/TypeTale.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">字字动画 TypeTale</h3>
+        </div>
+        <p>小说推文与 AI 短剧桌面向客户端（GitHub: TypeTale/TypeTale）。
+
+本项目不再把您送到 xiaoge 导航首页：点击下方按钮进入&lt;strong&gt;本站独…</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">语音</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/gpt-sovits.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/RVC-Boss.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">GPT-SoVITS</h3>
+        </div>
+        <p>高人气语音克隆管线，适合做角色配音与小样本音色。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/cosyvoice.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/FunAudioLLM.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">CosyVoice</h3>
+        </div>
+        <p>通义实验室语音开源线，适合做可控 TTS 与产品集成。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/edge-tts.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/rany2.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">edge-tts</h3>
+        </div>
+        <p>Python 封装微软 Edge 在线发音，门槛低，是许多视频自动化首选旁白方案。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/whisper.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/openai.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Whisper</h3>
+        </div>
+        <p>多语言语音识别基线模型，自动生成字幕与时间轴的基础设施。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/faster-whisper.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/SYSTRAN.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">faster-whisper</h3>
+        </div>
+        <p>基于 CTranslate2 的 Whisper 高效推理实现，显存与速度优于原版 PyTorch 推理，适合大批量打轴与字幕。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/bark.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/suno-ai.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Bark</h3>
+        </div>
+        <p>Suno 开源神经 TTS，可生成带情绪与简单背景音效的语音，适合创意短片与旁白实验。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/audiocraft.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/facebookresearch.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">AudioCraft</h3>
+        </div>
+        <p>Meta 开源音频生成套件（含 MusicGen 等），可为视频自动铺轨、氛围音乐或音效提供素材。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/piper-tts.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/rhasspy.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Piper</h3>
+        </div>
+        <p>Rhasspy 系轻量离线神经 TTS，适合端侧或内网无公网 TTS 时的旁白合成。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/coqui-tts.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/coqui-ai.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Coqui TTS</h3>
+        </div>
+        <p>经典开源 TTS 工具包，支持训练与推理多种声线；社区教材多，适合深度定制发音人。</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">剪辑编码</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/ffmpeg.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/FFmpeg.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">FFmpeg</h3>
+        </div>
+        <p>音视频处理工业标准 CLI/库，所有严肃视频链路都离不开它。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/shotcut.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/mltframework.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Shotcut</h3>
+        </div>
+        <p>跨平台开源非线性剪辑，适合做轻量粗剪。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/obs-studio.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/obsproject.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">OBS Studio</h3>
+        </div>
+        <p>直播与桌面采集事实标准之一，支持多场景与插件。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/blender.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/blender.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Blender</h3>
+        </div>
+        <p>全功能三维与合成套件，内含视频序列编辑器，适合三维+实拍混合管线。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/kdenlive.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/KDE.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Kdenlive</h3>
+        </div>
+        <p>KDE 非线性视频编辑器，功能完整、跨平台，适合 Linux 桌面用户做长片剪辑。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/natron.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/NatronGitHub.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Natron</h3>
+        </div>
+        <p>开源节点式合成与调色工具，偏影视后期与通道合成，可与 CG 渲染流程衔接。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/losslesscut.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/mifi.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">LosslessCut</h3>
+        </div>
+        <p>基于 FFmpeg 的无损裁切与快速分段，适合粗剪、拆条与归档而不二次编码。</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">标注数据</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/label-studio.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/HumanSignal.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Label Studio</h3>
+        </div>
+        <p>多模态数据标注平台，可标视频帧、音频、文本，适合做训练数据质检。</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">开发库</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/diffusers.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/huggingface.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">🤗 Diffusers</h3>
+        </div>
+        <p>Hugging Face 扩散模型流水线库，文生图与视频管线接口统一。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/moviepy.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/Zulko.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">MoviePy</h3>
+        </div>
+        <p>用 Python 写剪辑脚本：剪切、字幕、拼接，适合 Glue 自动化。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/remotion.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/remotion-dev.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Remotion</h3>
+        </div>
+        <p>用 React 写「可编程视频」：模板、数据驱动成片、CI 里出预览，适合产品演示与批量化短视频。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/aiortc.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/aiortc.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">aiortc</h3>
+        </div>
+        <p>Python WebRTC，实时音视频原型与流媒体实验常用。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/ffmpeg-python.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/kkroening.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">ffmpeg-python</h3>
+        </div>
+        <p>用 Python 友好地拼 FFmpeg 命令行，适合把转码、拼接、滤镜封装进自动化脚本。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/opencv.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/opencv.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">OpenCV</h3>
+        </div>
+        <p>计算机视觉基础库：跟踪、检测、图像处理与简单视频 IO，是大量 AI 视觉前后处理的事实标准。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/modelscope.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/modelscope.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">ModelScope（魔搭）</h3>
+        </div>
+        <p>魔搭社区模型与工具链，便于拉取国内常用文生图/视频相关权重与推理示例。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/mmagic.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/open-mmlab.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">MMagic</h3>
+        </div>
+        <p>OpenMMLab 旗下生成式工具箱，覆盖图像/视频编辑与恢复等任务，适合科研与工程统一代码风格。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/transformers.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/huggingface.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">🤗 Transformers</h3>
+        </div>
+        <p>大模型与多模态模型加载、训练与推理的核心库之一，与 Diffusers 常配合使用。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/imagemagick.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/ImageMagick.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">ImageMagick</h3>
+        </div>
+        <p>老牌图像处理瑞士军刀，适合批量缩放、格式转换、水印与简单动图，常作为流水线的 glue。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/gradio.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/gradio-app.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Gradio</h3>
+        </div>
+        <p>几行代码为模型搭 Web Demo，适合给内部同事或客户快速试用文生图/视频接口。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/streamlit.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/streamlit.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Streamlit</h3>
+        </div>
+        <p>纯 Python 写交互界面，适合快速做「上传脚本→调参→看结果」的内部工具。</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">短剧工具</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/deep-comedy.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/comedyleee.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">deep-comedy-pro</h3>
+        </div>
+        <p>AI 短剧/视频生产方向的示例管线开源项目。本站提供说明与服务器上的源码 ZIP 快照；使用前请自行审阅包内许可与安全。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/local-minidrama.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/xuanyustudio.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">LocalMiniDrama</h3>
+        </div>
+        <p>本地优先的 AI 短剧实验台（Vue3 + Electron）：脚本、角色与场景生成可在本机闭环，适合不愿上云的创作者。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/cinegen-shortdrama.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/UllrAI.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">CineGen-ShortDrama</h3>
+        </div>
+        <p>Keyframe 驱动的 AI 漫剧 / 分镜工作流，强调镜头与角色一致性，适合从分镜到短片的快速原型。</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">下载与素材</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/yt-dlp.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/yt-dlp.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">yt-dlp</h3>
+        </div>
+        <p>youtube-dl 精神的活跃继任者，支持海量站点元数据与格式解析；用于素材归档时请遵守平台 ToS 与版权法。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/exiftool.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/exiftool.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">exiftool</h3>
+        </div>
+        <p>读写照片/视频元数据的标准工具，整理素材库、批量改拍摄时间或版权信息时常用。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/scenedetect.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/Breakthrough.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">PySceneDetect</h3>
+        </div>
+        <p>基于内容变化自动切分镜头，适合长视频拆条、粗剪与数据集构建。</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">本地与编排</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/ollama.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/ollama.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Ollama</h3>
+        </div>
+        <p>本地一键拉取与运行开源权重，方便在剪映脚本、分镜文案、提示词扩写侧挂私有模型。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/n8n.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/n8n-io.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">n8n</h3>
+        </div>
+        <p>可视化工作流与定时任务，可把 Webhook、HTTP、数据库与 AI API 串成稳定管线，适合半自动内容生产。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/flowise.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/FlowiseAI.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">Flowise</h3>
+        </div>
+        <p>拖拽式 LLM 应用构建器，易与向量库、工具调用组合，用于搭建「写作→审核→出稿」类代理。</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+    <span class="section-tag" style="background:rgba(124,92,252,.08);color:var(--accent2);display:inline-block;margin:2rem 0 .5rem">资源导航</span>
+    <div class="grid-3" style="margin-bottom:16px">
+      <a class="card card-row-link" href="tools/deep-comedy-overview.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="assets/deep-comedy-panel.png" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">deep-comedy-pro · AI 短剧流水线</h3>
+        </div>
+        <p>面向 AI 短剧与视频生产的开源示例管线：串联脚本、素材与成片思路。点此进入本站项目页下载源码 ZIP 并阅读部署说明。</p>
+        <span class="cta">详情 →</span>
+      </a>
+      <a class="card card-row-link" href="tools/zizi-resources-nav.html">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+          <img src="https://github.com/xiaogei.png?s=280" alt="" width="56" height="56" loading="lazy" referrerpolicy="no-referrer"
+               style="border-radius:12px;border:1px solid var(--bg3);object-fit:cover" onerror="this.style.display='none'" />
+          <h3 style="margin:0;font-size:1.05rem">字字资源导航页</h3>
+        </div>
+        <p>第三方整理的下载与教程外链聚合（非字字官方）；适合快速跳转飞书/B 站/配音资源，使用前请自检文件安全与版权。
+
+主按钮为本站镜面（zizi-123.html），含完整口令表与…</p>
+        <span class="cta">详情 →</span>
+      </a>
+    </div>
+
+  </div>
+</section>
+<footer>
+  <div class="container">
+    <div class="flinks"><a href="index.html">开视频工具</a><a href="zizi-123.html">字字资源镜像</a><a href="https://axonclawx.cn/" target="_blank" rel="noopener noreferrer">AxonClawX</a></div>
+    <p>部署于本地 Nginx · 风格对齐 axonclawx.cn</p>
+  </div>
+</footer>
+
+</body>
+</html>

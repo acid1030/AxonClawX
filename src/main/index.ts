@@ -281,14 +281,21 @@ function normalizeModelAlias(rawValue: string): string {
     if (/^\d+(?:\.\d+)?-codex$/i.test(next)) {
       next = `gpt-${next}`;
     }
+    if (/^gpt-5\.4$/i.test(next)) {
+      next = 'gpt-5.4-mini';
+    }
     return next;
   };
 
   if (raw.includes('/')) {
     const [provider, ...rest] = raw.split('/');
     if (!provider || rest.length === 0) return normalizeLeaf(raw);
+    const leaf = normalizeLeaf(rest.join('/'));
     const normalizedProvider = normalizeProviderAlias(provider);
-    return `${normalizedProvider || provider}/${normalizeLeaf(rest.join('/'))}`;
+    const providerForModel = normalizedProvider.toLowerCase() === 'openai' && /^gpt-5\.(?:3-codex|4-mini|5)$/i.test(leaf)
+      ? 'openai-codex'
+      : normalizedProvider;
+    return `${providerForModel || provider}/${leaf}`;
   }
   return normalizeLeaf(raw);
 }
@@ -320,6 +327,15 @@ function readGatewaySessionModelInfo(value: unknown): { model: string; provider:
   };
 }
 
+function getGatewayRpcTimeoutMs(method: string): number {
+  const rpcMethod = String(method || '').trim();
+  if (rpcMethod === 'chat.send') return 120_000;
+  if (rpcMethod === 'sessions.patch' || rpcMethod === 'sessions.compact') return 120_000;
+  if (rpcMethod === 'chat.history' || rpcMethod === 'sessions.history' || rpcMethod === 'sessions.preview') return 60_000;
+  if (rpcMethod === 'sessions.list') return 30_000;
+  return 30_000;
+}
+
 async function ensureDeepSeekV4ThinkingOffForChatSend(params: unknown): Promise<void> {
   const payload = params && typeof params === 'object' ? params as Record<string, unknown> : {};
   const sessionKey = String(payload.sessionKey || '').trim();
@@ -342,6 +358,27 @@ async function ensureDeepSeekV4ThinkingOffForChatSend(params: unknown): Promise<
   } catch (err) {
     console.warn('[GatewayRPC] DeepSeek V4 thinking preflight failed; continuing chat.send:', err);
   }
+}
+
+async function normalizeChatSendParams(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const normalized = { ...params };
+  const messageRaw = typeof normalized.message === 'string' ? normalized.message : '';
+  const normalizedMessage = normalizeModelCommandMessage(messageRaw);
+  if (normalizedMessage !== messageRaw) {
+    normalized.message = normalizedMessage;
+  }
+
+  await ensureDeepSeekV4ThinkingOffForChatSend(normalized);
+
+  // `model`, `modelProvider`, and `thinkingLevel` are AxonClawX-side hints used
+  // for the DeepSeek V4 preflight above. OpenClaw chat.send rejects unknown root
+  // keys, so never forward those metadata fields to Gateway.
+  delete normalized.model;
+  delete normalized.modelProvider;
+  delete normalized.providerOverride;
+  delete normalized.modelOverride;
+  delete normalized.thinkingLevel;
+  return normalized;
 }
 
 function allocEphemeralCodexAuthPartition(): string {
@@ -676,14 +713,7 @@ function ensureOpenAiCodexProviderConfig(params?: {
   const nowIso = new Date().toISOString();
   const existing = ensureRecord(providers[providerId]);
 
-  const modelEntries = asModelArray(existing.models);
-  const modelSet = new Set(modelEntries.map((m) => m.id));
-  for (const id of ['gpt-5.3-codex', 'gpt-5.2-codex']) {
-    if (!modelSet.has(id)) {
-      modelEntries.push({ id, name: id });
-      modelSet.add(id);
-    }
-  }
+  const modelEntries = mergeOpenAiCodexModels(existing.models);
 
   const nextProvider: Record<string, unknown> = {
     ...existing,
@@ -694,7 +724,7 @@ function ensureOpenAiCodexProviderConfig(params?: {
     baseUrl: 'https://chatgpt.com/backend-api',
     api: 'openai-codex-responses',
     apiProtocol: 'openai-codex-responses',
-    model: 'gpt-5.3-codex',
+    model: 'gpt-5.4-mini',
     models: modelEntries,
     enabled: existing.enabled !== false,
     createdAt: existing.createdAt || nowIso,
@@ -708,9 +738,18 @@ function ensureOpenAiCodexProviderConfig(params?: {
 
   const agents = ensureRecord(cfg.agents);
   const defaults = ensureRecord(agents.defaults);
+  const defaultModels = ensureRecord(defaults.models);
+  for (const model of OPENAI_CODEX_MODEL_CATALOG) {
+    const modelRef = `${providerId}/${model.id}`;
+    defaultModels[modelRef] = {
+      ...ensureRecord(defaultModels[modelRef]),
+      alias: model.name,
+    };
+  }
+  defaults.models = defaultModels;
   const modelCfg = ensureRecord(defaults.model);
-  const primaryModel = `${providerId}/gpt-5.3-codex`;
-  const fallbackFromProvider = `${providerId}/gpt-5.2-codex`;
+  const primaryModel = `${providerId}/gpt-5.4-mini`;
+  const fallbackFromProvider = `${providerId}/gpt-5.3-codex`;
   const fallbackList = Array.isArray(modelCfg.fallbacks)
     ? (modelCfg.fallbacks as unknown[]).map((x) => String(x || '').trim()).filter(Boolean)
     : [];
@@ -1223,6 +1262,116 @@ function sanitizeSetupCompleteKeysInConfig(): void {
       cfg.models = models;
       changed = true;
     }
+    const providers = ensureRecord(models.providers);
+    const providerUiOnlyKeys = [
+      'accountId',
+      'vendorId',
+      'label',
+      'authMode',
+      'apiProtocol',
+      'model',
+      'enabled',
+      'createdAt',
+      'updatedAt',
+      'fallbackModels',
+      'fallbackAccountIds',
+      'fallbackProviderIds',
+      'email',
+      'metadata',
+    ];
+    for (const [providerId, providerRaw] of Object.entries(providers)) {
+      const provider = ensureRecord(providerRaw);
+      for (const key of providerUiOnlyKeys) {
+        if (key in provider) {
+          delete provider[key];
+          changed = true;
+        }
+      }
+      if (providerId === 'openai' && !String(provider.apiKey || '').trim()) {
+        delete providers[providerId];
+        changed = true;
+        continue;
+      }
+      if (providerId === 'openai-codex') {
+        const nextModels = mergeOpenAiCodexModels(provider.models);
+        const currentModels = JSON.stringify(asModelArray(provider.models));
+        const desiredModels = JSON.stringify(nextModels);
+        if (
+          provider.baseUrl !== 'https://chatgpt.com/backend-api'
+          || provider.api !== 'openai-codex-responses'
+          || currentModels !== desiredModels
+        ) {
+          provider.baseUrl = 'https://chatgpt.com/backend-api';
+          provider.api = 'openai-codex-responses';
+          provider.models = nextModels;
+          changed = true;
+        }
+      }
+      providers[providerId] = provider;
+    }
+    if (Object.keys(providers).length > 0 || Object.prototype.hasOwnProperty.call(models, 'providers')) {
+      models.providers = providers;
+      cfg.models = models;
+    }
+    const agents = ensureRecord(cfg.agents);
+    const defaults = ensureRecord(agents.defaults);
+    const defaultModels = ensureRecord(defaults.models);
+    for (const model of OPENAI_CODEX_MODEL_CATALOG) {
+      const modelRef = `openai-codex/${model.id}`;
+      const existingAlias = ensureRecord(defaultModels[modelRef]);
+      if (existingAlias.alias !== model.name) {
+        defaultModels[modelRef] = { ...existingAlias, alias: model.name };
+        changed = true;
+      }
+    }
+    defaults.models = defaultModels;
+    const modelCfg = ensureRecord(defaults.model);
+    const primary = String(modelCfg.primary || '').trim();
+    if (primary === 'openai-codex/gpt-5.2-codex') {
+      modelCfg.primary = 'openai-codex/gpt-5.4-mini';
+      changed = true;
+    }
+    const fallbacks = Array.isArray(modelCfg.fallbacks)
+      ? (modelCfg.fallbacks as unknown[]).map((x) => String(x || '').trim()).filter(Boolean)
+      : [];
+    const nextFallbacks = fallbacks
+      .filter((item) => !/^openai-codex\/gpt-5\.2-codex$/i.test(item));
+    if (primary.startsWith('openai-codex/') && !nextFallbacks.includes('openai-codex/gpt-5.3-codex')) {
+      nextFallbacks.unshift('openai-codex/gpt-5.3-codex');
+    }
+    if (JSON.stringify(nextFallbacks) !== JSON.stringify(fallbacks)) {
+      modelCfg.fallbacks = nextFallbacks;
+      defaults.model = modelCfg;
+      agents.defaults = defaults;
+      cfg.agents = agents;
+      changed = true;
+    }
+    const plugins = ensureRecord(cfg.plugins);
+    const slots = ensureRecord(plugins.slots);
+    const entries = ensureRecord(plugins.entries);
+    const memorySlot = String(slots.memory || '').trim();
+    if (memorySlot && !entries[memorySlot]) {
+      delete slots.memory;
+      plugins.slots = slots;
+      cfg.plugins = plugins;
+      changed = true;
+    }
+    for (const [entryId, entryRaw] of Object.entries(entries)) {
+      if (!/^memory-lancedb/i.test(entryId)) continue;
+      const entry = ensureRecord(entryRaw);
+      const entryConfig = ensureRecord(entry.config);
+      if ('embedding' in entryConfig) {
+        const embedding = entryConfig.embedding;
+        if (!embedding || (typeof embedding === 'object' && Object.keys(ensureRecord(embedding)).length === 0)) {
+          delete entryConfig.embedding;
+          entry.config = entryConfig;
+          entries[entryId] = entry;
+          plugins.entries = entries;
+          cfg.plugins = plugins;
+          changed = true;
+        }
+      }
+    }
     if (changed) {
       console.log('[Main] Sanitizing invalid keys in openclaw config');
       writeOpenclawConfig(cfg);
@@ -1566,19 +1715,22 @@ async function initialize(): Promise<void> {
     console.warn('[Main] auth profile sync skipped:', err);
   }
 
-  // 启动时主动探测 OpenClaw 进程端口，确保 /api/agents 等请求使用正确端口
-  try {
-    const r = await resolveGatewayPort();
-    if (r.success && r.port) {
-      console.log('[Main] Gateway resolved at port', r.port);
-    }
-  } catch {
-    /* ignore */
-  }
-
   // Create the main window
   applyCustomAppIcon();
   mainWindow = createWindow();
+
+  // Port probing can touch multiple local ports. Keep it off the critical path
+  // so the renderer appears immediately after database/config initialization.
+  void (async () => {
+    try {
+      const r = await resolveGatewayPort();
+      if (r.success && r.port) {
+        console.log('[Main] Gateway resolved at port', r.port);
+      }
+    } catch {
+      /* ignore */
+    }
+  })();
 
   // Subscribe to Gateway events
   const gatewayManager = getGatewayManager();
@@ -1603,37 +1755,44 @@ async function initialize(): Promise<void> {
     pushGatewayRuntimeLog(level === 'info' ? 'info' : level === 'warn' ? 'warn' : 'error', message);
   });
   
-  // 程序启动时自动启动网关（若未运行）
-  if (!isGatewayRunning()) {
-    console.log('[Main] Auto-starting Gateway...');
-    try {
-      const status = await startGatewayWithSelfHeal();
-      if (!status.startSuccess) {
-        console.error('[Main] Gateway auto-start failed with diagnostics:', status.error);
-        safeSendToRenderer('gateway:status', status);
-        safeSendToRenderer('gateway:error', status.error || 'Gateway auto-start failed');
-        if (status.logTail?.length) {
-          for (const line of status.logTail.slice(-40)) {
-            pushGatewayRuntimeLog('debug', line);
-          }
-        }
-      } else {
-        console.log('[Main] Gateway started');
-        safeSendToRenderer('gateway:status', getGatewayStatus());
-      }
-    } catch (err) {
-      console.error('[Main] Gateway auto-start failed:', err);
+  // 程序启动时自动启动网关（若未运行）。不要阻塞首屏渲染。
+  void (async () => {
+    if (!isGatewayRunning()) {
+      console.log('[Main] Auto-starting Gateway...');
       safeSendToRenderer('gateway:status', {
         ...getGatewayStatus(),
-        state: 'error',
-        error: String(err),
+        state: 'starting',
       });
-      safeSendToRenderer('gateway:error', String(err));
+      pushGatewayRuntimeLog('info', 'Gateway starting...');
+      try {
+        const status = await startGatewayWithSelfHeal();
+        if (!status.startSuccess) {
+          console.error('[Main] Gateway auto-start failed with diagnostics:', status.error);
+          safeSendToRenderer('gateway:status', status);
+          safeSendToRenderer('gateway:error', status.error || 'Gateway auto-start failed');
+          if (status.logTail?.length) {
+            for (const line of status.logTail.slice(-40)) {
+              pushGatewayRuntimeLog('debug', line);
+            }
+          }
+        } else {
+          console.log('[Main] Gateway started');
+          safeSendToRenderer('gateway:status', getGatewayStatus());
+        }
+      } catch (err) {
+        console.error('[Main] Gateway auto-start failed:', err);
+        safeSendToRenderer('gateway:status', {
+          ...getGatewayStatus(),
+          state: 'error',
+          error: String(err),
+        });
+        safeSendToRenderer('gateway:error', String(err));
+      }
+    } else {
+      console.log('[Main] Gateway already running');
+      safeSendToRenderer('gateway:status', getGatewayStatus());
     }
-  } else {
-    console.log('[Main] Gateway already running');
-    safeSendToRenderer('gateway:status', getGatewayStatus());
-  }
+  })();
 
   // Handle window activation (macOS)
   app.on('activate', () => {
@@ -1765,8 +1924,25 @@ ipcMain.handle('gateway:checkConnection', async () => {
         host: '127.0.0.1',
         port: result.port,
       });
+      return { success: true, port: result.port };
     }
-    return { success: result.success, port: result.port, error: result.error };
+
+    // Some OpenClaw builds expose a working JSON-RPC socket while /health or
+    // lightweight port probes are unreliable. Treat a successful read-only RPC
+    // as authoritative so the renderer does not stay in a false "stopped" state.
+    const rpcProbe = await callGatewayRpcWithRetry('sessions.list', { limit: 1 }, 8000);
+    if (rpcProbe.ok) {
+      const port = getResolvedGatewayPort();
+      persistGatewayConnectionToConfig({
+        mode: 'local',
+        protocol: 'ws',
+        host: '127.0.0.1',
+        port,
+      });
+      return { success: true, port };
+    }
+
+    return { success: false, port: result.port, error: rpcProbe.error || result.error };
   } catch (e) {
     return { success: false, error: String(e) };
   }
@@ -1821,17 +1997,24 @@ ipcMain.handle('gateway:rpc', async (_event, methodOrPayload: unknown, paramsOrU
       delete normalized.modelId;
     }
     params = normalized;
+
+    if (typeof normalized.model === 'string' && normalized.model.trim()) {
+      try {
+        const ensured = isOpenAiCodexCatalogModelRef(normalized.model)
+          ? ensureOpenAiCodexModelCatalogInConfig()
+          : ensureConfiguredModelAliasesInConfig();
+        if (ensured.changed) {
+          console.log(`[GatewayRPC] ensured configured model aliases before sessions.patch: ${ensured.models.join(', ')}`);
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        }
+      } catch (err) {
+        console.warn('[GatewayRPC] failed to ensure configured model aliases:', err);
+      }
+    }
   }
 
   if (method === 'chat.send' && params && typeof params === 'object') {
-    const normalized = { ...params } as Record<string, unknown>;
-    const messageRaw = typeof normalized.message === 'string' ? normalized.message : '';
-    const normalizedMessage = normalizeModelCommandMessage(messageRaw);
-    if (normalizedMessage !== messageRaw) {
-      normalized.message = normalizedMessage;
-    }
-    params = normalized;
-    await ensureDeepSeekV4ThinkingOffForChatSend(params);
+    params = await normalizeChatSendParams(params);
   }
 
   console.log(`[GatewayRPC] ${method}`, params);
@@ -1839,7 +2022,29 @@ ipcMain.handle('gateway:rpc', async (_event, methodOrPayload: unknown, paramsOrU
 
   // 非 chat.send 走统一 RPC 内核（含重试/端口重探测），避免多套 WS 链路分叉导致不一致。
   if (method !== 'chat.send') {
-    const result = await callGatewayRpcWithRetry(method, params, timeout);
+    let result = await callGatewayRpcWithRetry(method, params, timeout);
+
+    if (
+      method === 'sessions.patch'
+      && params
+      && typeof params === 'object'
+      && !result.ok
+      && /model not allowed/i.test(String(result.error || ''))
+    ) {
+      try {
+        const modelRef = (params as Record<string, unknown>).model;
+        const ensured = isOpenAiCodexCatalogModelRef(modelRef)
+          ? ensureOpenAiCodexModelCatalogInConfig()
+          : ensureConfiguredModelAliasesInConfig();
+        console.warn(`[GatewayRPC] Gateway rejected model; restarting gateway after alias ensure changed=${ensured.changed}`);
+        await stopGateway().catch(() => undefined);
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        await startGateway();
+        result = await callGatewayRpcWithRetry(method, params, timeout);
+      } catch (err) {
+        console.warn('[GatewayRPC] model alias self-heal retry failed:', err);
+      }
+    }
 
     if (method === 'sessions.list') {
       const req = (params && typeof params === 'object') ? (params as Record<string, unknown>) : {};
@@ -1869,17 +2074,25 @@ ipcMain.handle('gateway:rpc', async (_event, methodOrPayload: unknown, paramsOrU
       const remoteMessages = Array.isArray(payload.messages) ? payload.messages : [];
       const req = (params && typeof params === 'object') ? (params as Record<string, unknown>) : {};
       const fallbackMessages = readLocalSessionHistory(req.sessionKey, Number(req.limit) || 200);
-      if (remoteMessages.length === 0 && fallbackMessages.length > 0) {
-        return {
-          success: true,
-          ok: true,
-          result: {
-            ...payload,
-            messages: fallbackMessages,
-            total: fallbackMessages.length,
-            localFallback: true,
-          },
-        };
+      if (fallbackMessages.length > 0) {
+        const mergedMessages = mergeLocalAndRemoteHistory(
+          remoteMessages as Array<Record<string, unknown>>,
+          fallbackMessages,
+        );
+        const shouldUseMerged = remoteMessages.length === 0 || mergedMessages.length > remoteMessages.length;
+        if (shouldUseMerged) {
+          return {
+            success: true,
+            ok: true,
+            result: {
+              ...payload,
+              messages: mergedMessages,
+              total: mergedMessages.length,
+              localFallback: remoteMessages.length === 0,
+              localMerged: remoteMessages.length > 0,
+            },
+          };
+        }
       }
     }
 
@@ -1946,7 +2159,7 @@ ipcMain.handle('gateway:rpc', async (_event, methodOrPayload: unknown, paramsOrU
             params: {
               minProtocol: 3,
               maxProtocol: 3,
-              client: { id: 'gateway-client', displayName: 'ClawX', version: '0.1.0', platform: process.platform, mode: 'ui' },
+              client: { id: 'gateway-client', displayName: 'AxonClawX', version: '0.1.0', platform: process.platform, mode: 'ui' },
               auth,
               ...(device ? { device } : {}),
               role: 'operator',
@@ -2099,9 +2312,13 @@ ipcMain.handle('gateway:rpc', async (_event, methodOrPayload: unknown, paramsOrU
             agent: 'Gateway',
             message: `event=${ev} phase=${phase ?? '?'} state=${state ?? '?'} hasMessage=${hasMessage}${messagePreview ? ` preview=${JSON.stringify(messagePreview)}` : ''}`,
           });
-          // 收到完成事件后关闭连接
-          const donePhases = ['completed', 'done', 'finished', 'end', 'error', 'aborted', 'abort', 'failed'];
-          const isDone = (phase && donePhases.includes(String(phase)))
+          // OpenClaw may emit phase=completed for intermediate agent/tool steps.
+          // Closing on that event drops later deltas and makes DeepSeek replies look
+          // like they disappeared. Only close on terminal stream events/states.
+          const isDone = ev.endsWith('.final')
+            || ev.endsWith('.error')
+            || ev.endsWith('.aborted')
+            || ev.endsWith('.abort')
             || state === 'final'
             || state === 'error'
             || state === 'aborted';
@@ -2172,12 +2389,12 @@ ipcMain.handle('chat:sendWithMedia', async (_event, payload: {
       rpcParams.media = mediaContent;
     }
 
-    await ensureDeepSeekV4ThinkingOffForChatSend(rpcParams);
+    const normalizedRpcParams = await normalizeChatSendParams(rpcParams);
 
-    // Reuse the gateway:rpc IPC handler via direct call
+    // Reuse the gateway RPC core after stripping AxonClawX-only metadata.
     const { callGatewayRpcWithRetry } = require('../gateway/rpc');
     const timeoutMs = Math.max(30_000, Number(payload.timeoutMs) || 120_000);
-    const result = await callGatewayRpcWithRetry('chat.send', rpcParams, timeoutMs);
+    const result = await callGatewayRpcWithRetry('chat.send', normalizedRpcParams, timeoutMs);
     return result;
   } catch (err) {
     console.error('[chat:sendWithMedia] Error:', err);
@@ -2897,6 +3114,10 @@ function parseSessionIdFromKey(sessionKeyRaw: unknown): string | null {
   const parts = sessionKey.split(':').filter(Boolean);
   const tail = parts[parts.length - 1] || '';
   if (uuidRe.test(tail)) return tail;
+  // OpenClaw sessions are not always UUIDs (for example AxonClawX creates
+  // run/session-* keys). Allow a conservative file-stem fallback so local
+  // history recovery and soft-delete still map to the correct JSONL file.
+  if (/^[A-Za-z0-9._-]{1,180}$/.test(tail) && !tail.endsWith('.deleted')) return tail;
   return null;
 }
 
@@ -2913,11 +3134,59 @@ function extractTextFromContent(content: unknown): string {
 
 type LocalSessionSummary = {
   key: string;
+  sessionId?: string;
   displayName?: string;
   label?: string;
   updatedAt: number;
   model?: string;
 };
+
+type LocalSessionIndexEntry = {
+  key: string;
+  agentId: string;
+  sessionId?: string;
+  sessionFile?: string;
+  updatedAt?: number;
+  model?: string;
+};
+
+function readLocalSessionIndex(agentId: string): Record<string, unknown> {
+  const indexFile = path.join(os.homedir(), '.openclaw', 'agents', agentId, 'sessions', 'sessions.json');
+  if (!fs.existsSync(indexFile)) return {};
+  try {
+    const rawIndex = JSON.parse(fs.readFileSync(indexFile, 'utf8')) as Record<string, unknown>;
+    const nested = rawIndex.sessions;
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      return nested as Record<string, unknown>;
+    }
+    return rawIndex;
+  } catch {
+    return {};
+  }
+}
+
+function normalizeLocalSessionIndexEntry(
+  key: string,
+  agentId: string,
+  entryRaw: unknown,
+): LocalSessionIndexEntry | null {
+  if (!entryRaw || typeof entryRaw !== 'object') return null;
+  if (isSubagentSessionKey(key)) return null;
+  const entry = entryRaw as Record<string, unknown>;
+  const sessionId = String(entry.sessionId || '').trim();
+  const sessionFile = String(entry.sessionFile || entry.file || entry.path || '').trim();
+  const provider = String(entry.providerOverride || entry.provider || '').trim();
+  const modelId = String(entry.modelOverride || entry.modelId || entry.model || '').trim();
+  const updatedAt = Number(entry.updatedAt || entry.lastInteractionAt || 0);
+  return {
+    key,
+    agentId,
+    sessionId: sessionId || undefined,
+    sessionFile: sessionFile || undefined,
+    updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : undefined,
+    model: [provider, modelId].filter(Boolean).join('/') || undefined,
+  };
+}
 
 function isAuxiliarySessionFileName(name: string): boolean {
   return (
@@ -2948,6 +3217,29 @@ function readTrajectorySessionKey(sessionFile: string): string | null {
   }
 }
 
+function readLocalSessionIndexEntry(sessionKeyRaw: unknown): LocalSessionIndexEntry | null {
+  const sessionKey = String(sessionKeyRaw || '').trim();
+  if (!sessionKey || isSubagentSessionKey(sessionKey)) return null;
+  const agentId = sessionKey.startsWith('agent:')
+    ? sessionKey.split(':')[1] || 'main'
+    : 'main';
+  const rawIndex = readLocalSessionIndex(agentId);
+  const candidateKeys = sessionKey.startsWith('agent:')
+    ? [sessionKey]
+    : [sessionKey, `agent:${agentId}:${sessionKey}`];
+  for (const key of candidateKeys) {
+    const normalized = normalizeLocalSessionIndexEntry(key, agentId, rawIndex[key]);
+    if (normalized) return normalized;
+  }
+  for (const [key, entryRaw] of Object.entries(rawIndex)) {
+    const normalized = normalizeLocalSessionIndexEntry(key, agentId, entryRaw);
+    if (!normalized?.sessionId) continue;
+    if (normalized.sessionId === sessionKey) return normalized;
+  }
+
+  return null;
+}
+
 function isSubagentBootstrapText(text: string): boolean {
   const normalized = text.toLowerCase();
   return (
@@ -2958,16 +3250,51 @@ function isSubagentBootstrapText(text: string): boolean {
     normalized.includes('your assigned task is in the system prompt') ||
     normalized.includes('read heartbeat.md') ||
     normalized.includes('heartbeat_ok') ||
+    normalized.includes('openclaw heartbeat poll') ||
     normalized.includes('sender (untrusted metadata)') ||
     /\.trajectory(?:\.jsonl)?$/i.test(text.trim()) ||
     /\.checkpoint\.[^.]+(?:\.jsonl)?$/i.test(text.trim())
   );
 }
 
+function isSubagentConversationBootstrapText(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return (
+    normalized.includes('[subagent context]') ||
+    normalized.includes('you are running as a subagent') ||
+    normalized.includes('results auto-annou') ||
+    normalized.includes('your assigned task is in the system prompt')
+  );
+}
+
 function sanitizeLocalSessionTitle(text: string): string {
-  const title = String(text || '').replace(/\s+/g, ' ').trim();
+  const title = String(text || '')
+    .replace(/^\[[^\]]*\]\s*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!title || isSubagentBootstrapText(title)) return '';
   return title.slice(0, 80);
+}
+
+function isGenericLocalSessionTitle(value: unknown, key?: unknown): boolean {
+  const title = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!title) return true;
+  const lower = title.toLowerCase();
+  const keyLower = String(key || '').trim().toLowerCase();
+  return (
+    lower === keyLower ||
+    lower === 'main' ||
+    lower === 'assistant' ||
+    lower === 'axonclawx' ||
+    lower === 'axonclaw' ||
+    lower === 'clawx' ||
+    lower === 'claw' ||
+    lower === 'new chat' ||
+    lower === 'untitled' ||
+    lower.startsWith('agent:') ||
+    /^session[-:]/i.test(title) ||
+    /^run[-:]/i.test(title)
+  );
 }
 
 function isPrimarySessionRecord(s: Record<string, unknown>): boolean {
@@ -2986,6 +3313,7 @@ function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
     path.join(os.homedir(), '.openclaw', 'agents'),
   ];
   const sessions: LocalSessionSummary[] = [];
+  const seenKeys = new Set<string>();
 
   for (const agentsRoot of roots) {
     if (!fs.existsSync(agentsRoot)) continue;
@@ -3006,6 +3334,13 @@ function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
     for (const agentId of agentIds) {
       const dir = path.join(agentsRoot, agentId, 'sessions');
       if (!fs.existsSync(dir)) continue;
+      const indexBySessionId = new Map<string, LocalSessionIndexEntry>();
+      const rawIndex = readLocalSessionIndex(agentId);
+      for (const [key, entryRaw] of Object.entries(rawIndex)) {
+        const entry = normalizeLocalSessionIndexEntry(key, agentId, entryRaw);
+        if (!entry?.sessionId) continue;
+        indexBySessionId.set(entry.sessionId, entry);
+      }
       let files: string[] = [];
       try {
         files = fs.readdirSync(dir)
@@ -3020,14 +3355,22 @@ function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
         try {
           const trajectorySessionKey = readTrajectorySessionKey(full);
           if (isSubagentSessionKey(trajectorySessionKey)) continue;
-          const sessionKey = trajectorySessionKey || `agent:${agentId}:${id}`;
+          const indexedEntry = indexBySessionId.get(id);
+          if (indexedEntry && isSubagentSessionKey(indexedEntry.key)) continue;
+          // Do not let a run trajectory's sessionKey override the real
+          // sessions.json mapping. Some trajectory files point at a parent
+          // session key while their JSONL filename is a different run/session
+          // id; using that value as the list identity makes the sidebar point
+          // at the wrong transcript and causes apparent cross-session history.
+          const sessionKey = indexedEntry?.key || `agent:${agentId}:${id}`;
           const raw = fs.readFileSync(full, 'utf8');
           const lines = raw.split(/\r?\n/).filter(Boolean);
           if (lines.length === 0) continue;
 
-          let updatedAt = 0;
+          let updatedAt = indexedEntry?.updatedAt || 0;
           let firstUserText = '';
-          let modelText = '';
+          let modelText = indexedEntry?.model || '';
+          let likelySubagentConversation = false;
           for (const line of lines) {
             let obj: Record<string, unknown> | null = null;
             try {
@@ -3049,12 +3392,18 @@ function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
                 ? (obj.message as Record<string, unknown>)
                 : null;
               if (msg && msg.role === 'user') {
-                const candidate = sanitizeLocalSessionTitle(extractTextFromContent(msg.content));
+                const rawUserText = extractTextFromContent(msg.content);
+                if (isSubagentConversationBootstrapText(rawUserText)) {
+                  likelySubagentConversation = true;
+                  break;
+                }
+                const candidate = sanitizeLocalSessionTitle(rawUserText);
                 if (candidate) firstUserText = candidate;
               }
             }
           }
 
+          if (likelySubagentConversation) continue;
           if (!firstUserText) continue;
 
           if (!updatedAt) {
@@ -3062,8 +3411,11 @@ function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
             updatedAt = st.mtimeMs;
           }
 
+          if (seenKeys.has(sessionKey)) continue;
+          seenKeys.add(sessionKey);
           sessions.push({
             key: sessionKey,
+            sessionId: id,
             displayName: firstUserText,
             label: firstUserText,
             updatedAt,
@@ -3080,20 +3432,77 @@ function readLocalSessionSummaries(limit = 1000): LocalSessionSummary[] {
   return sessions.slice(0, Math.max(1, limit));
 }
 
+function getMessageComparisonKey(message: Record<string, unknown>): string {
+  const msgId = String(message.id || '').trim();
+  if (msgId) return `id:${msgId}`;
+  const role = String(message.role || '').trim();
+  const timestampMs = getMessageTimestampMs(message);
+  const timestamp = timestampMs != null ? String(Math.round(timestampMs)) : '';
+  const text = extractTextFromContent(message.content).replace(/\s+/g, ' ').trim().slice(0, 240);
+  return [role, timestamp, text].join('|');
+}
+
+function getMessageTimestampMs(message: Record<string, unknown>): number | null {
+  const raw = message.timestamp;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return raw < 1e12 ? raw * 1000 : raw;
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric)) return numeric < 1e12 ? numeric * 1000 : numeric;
+    const parsed = Date.parse(raw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function mergeLocalAndRemoteHistory(
+  remoteMessages: Array<Record<string, unknown>>,
+  localMessages: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  if (localMessages.length === 0) return remoteMessages;
+  if (remoteMessages.length === 0) return localMessages;
+
+  const merged: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+  for (const msg of [...localMessages, ...remoteMessages]) {
+    const key = getMessageComparisonKey(msg);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    merged.push(msg);
+  }
+
+  const withIndex = merged.map((message, index) => ({ message, index }));
+  withIndex.sort((a, b) => {
+    const at = getMessageTimestampMs(a.message);
+    const bt = getMessageTimestampMs(b.message);
+    if (at != null && bt != null && at !== bt) return at - bt;
+    if (at != null && bt == null) return -1;
+    if (at == null && bt != null) return 1;
+    return a.index - b.index;
+  });
+  return withIndex.map((item) => item.message);
+}
+
 function readLocalSessionHistory(sessionKeyRaw: unknown, limit = 200): Array<Record<string, unknown>> {
-  const sessionId = parseSessionIdFromKey(sessionKeyRaw);
-  if (!sessionId) return [];
+  const indexEntry = readLocalSessionIndexEntry(sessionKeyRaw);
+  const sessionId = indexEntry?.sessionId || parseSessionIdFromKey(sessionKeyRaw);
+  if (!sessionId && !indexEntry?.sessionFile) return [];
 
   const matchAgent = String(sessionKeyRaw || '').startsWith('agent:')
     ? String(sessionKeyRaw).split(':')[1] || 'main'
     : 'main';
 
   const candidateFiles = [
-    path.join(os.homedir(), '.openclaw', 'agents', matchAgent, 'sessions', `${sessionId}.jsonl`),
-    path.join(os.homedir(), '.openclaw', 'agents', 'main', 'sessions', `${sessionId}.jsonl`),
-    path.join(os.homedir(), '.openclaw', 'agents', matchAgent, 'sessions', `${sessionId}.deleted.jsonl`),
-    path.join(os.homedir(), '.openclaw', 'agents', 'main', 'sessions', `${sessionId}.deleted.jsonl`),
-  ];
+    indexEntry?.sessionFile || '',
+    indexEntry?.sessionId
+      ? path.join(os.homedir(), '.openclaw', 'agents', indexEntry.agentId, 'sessions', `${indexEntry.sessionId}.jsonl`)
+      : '',
+    sessionId ? path.join(os.homedir(), '.openclaw', 'agents', matchAgent, 'sessions', `${sessionId}.jsonl`) : '',
+    sessionId ? path.join(os.homedir(), '.openclaw', 'agents', 'main', 'sessions', `${sessionId}.jsonl`) : '',
+    sessionId ? path.join(os.homedir(), '.openclaw', 'agents', matchAgent, 'sessions', `${sessionId}.deleted.jsonl`) : '',
+    sessionId ? path.join(os.homedir(), '.openclaw', 'agents', 'main', 'sessions', `${sessionId}.deleted.jsonl`) : '',
+  ].filter(Boolean);
   const existing = candidateFiles.find((f) => fs.existsSync(f));
   if (!existing) return [];
 
@@ -3114,7 +3523,7 @@ function readLocalSessionHistory(sessionKeyRaw: unknown, limit = 200): Array<Rec
       if (!msg) continue;
       if (typeof msg.timestamp !== 'number') {
         const ts = Date.parse(String(obj.timestamp || ''));
-        if (Number.isFinite(ts)) msg.timestamp = Math.floor(ts);
+        if (Number.isFinite(ts)) msg.timestamp = Math.floor(ts / 1000);
       }
       messages.push(msg);
     }
@@ -3139,9 +3548,23 @@ function mergeSessionsWithLocalFallback(
 
   const locals = readLocalSessionSummaries(limit);
   for (const s of locals) {
-    if (merged.has(s.key)) continue;
+    if (merged.has(s.key)) {
+      const existing = merged.get(s.key) || {};
+      const currentDisplayName = String(existing.displayName || existing.label || '').trim();
+      const shouldUseLocalTitle = isGenericLocalSessionTitle(currentDisplayName, s.key);
+      merged.set(s.key, {
+        ...existing,
+        sessionId: String(existing.sessionId || '').trim() || s.sessionId || undefined,
+        displayName: shouldUseLocalTitle ? (s.displayName || s.key) : currentDisplayName,
+        label: shouldUseLocalTitle ? (s.label || s.displayName || undefined) : (String(existing.label || '').trim() || currentDisplayName),
+        updatedAt: Number(existing.updatedAt || 0) > 0 ? existing.updatedAt : s.updatedAt,
+        model: String(existing.model || '').trim() || s.model || undefined,
+      });
+      continue;
+    }
     merged.set(s.key, {
       key: s.key,
+      sessionId: s.sessionId || undefined,
       kind: 'direct',
       displayName: s.displayName || s.key,
       label: s.label || undefined,
@@ -3151,7 +3574,13 @@ function mergeSessionsWithLocalFallback(
     });
   }
 
-  const out = Array.from(merged.values());
+  const out = Array.from(merged.values()).filter((session) => {
+    const title = String(session.displayName || session.label || '').trim();
+    if (!isGenericLocalSessionTitle(title, session.key)) return true;
+    if (session.localFallback) return true;
+    if (session.hasActiveRun || session.status === 'running') return true;
+    return false;
+  });
   out.sort((a, b) => {
     const ta = Number(a?.updatedAt || 0);
     const tb = Number(b?.updatedAt || 0);
@@ -3265,6 +3694,125 @@ async function testGatewayWsConnection(
 const nodePath = path;
 const OPENCLAW_CFG_PATH = nodePath.join(os.homedir(), '.openclaw', 'openclaw.json');
 const AXONCLAWX_CFG_PATH = nodePath.join(os.homedir(), '.openclaw', 'axonclawx.json');
+const OPENAI_CODEX_MODEL_CATALOG: Array<{ id: string; name: string }> = [
+  { id: 'gpt-5.5', name: 'GPT-5.5' },
+  { id: 'gpt-5.4-mini', name: 'GPT-5.4-Mini' },
+  { id: 'gpt-5.3-codex', name: 'GPT-5.3-Codex' },
+];
+
+function isUnsupportedOpenAiCodexModelId(id: string): boolean {
+  return /^gpt-5\.2-codex$/i.test(String(id || '').trim());
+}
+
+function mergeOpenAiCodexModels(value: unknown): Array<{ id: string; name?: string }> {
+  const dedup = new Map<string, { id: string; name?: string }>();
+  for (const model of asFlexibleModelArray(value)) {
+    if (isUnsupportedOpenAiCodexModelId(model.id)) continue;
+    dedup.set(model.id, model);
+  }
+  for (const model of OPENAI_CODEX_MODEL_CATALOG) {
+    if (!dedup.has(model.id)) dedup.set(model.id, model);
+  }
+  return Array.from(dedup.values());
+}
+
+function isOpenAiCodexCatalogModelRef(value: unknown): boolean {
+  const raw = normalizeModelAlias(typeof value === 'string' ? value : '');
+  const [provider, ...modelParts] = raw.split('/');
+  if (provider !== 'openai-codex') return false;
+  const modelId = modelParts.join('/');
+  return OPENAI_CODEX_MODEL_CATALOG.some((model) => model.id === modelId);
+}
+
+function ensureOpenAiCodexModelCatalogInConfig(): { changed: boolean; models: string[] } {
+  const cfg = readOpenclawConfig();
+  const models = ensureRecord(cfg.models);
+  const providers = ensureRecord(models.providers);
+  const provider = ensureRecord(providers['openai-codex']);
+  const agents = ensureRecord(cfg.agents);
+  const defaults = ensureRecord(agents.defaults);
+  const defaultModels = ensureRecord(defaults.models);
+  const before = JSON.stringify({
+    baseUrl: provider.baseUrl,
+    api: provider.api,
+    models: asFlexibleModelArray(provider.models),
+    defaultModels,
+  });
+
+  provider.baseUrl = 'https://chatgpt.com/backend-api';
+  provider.api = 'openai-codex-responses';
+  provider.models = mergeOpenAiCodexModels(provider.models);
+  providers['openai-codex'] = provider;
+  models.providers = providers;
+  if (!models.mode) models.mode = 'merge';
+  cfg.models = models;
+
+  for (const model of OPENAI_CODEX_MODEL_CATALOG) {
+    const modelRef = `openai-codex/${model.id}`;
+    defaultModels[modelRef] = {
+      ...ensureRecord(defaultModels[modelRef]),
+      alias: model.name,
+    };
+  }
+  defaults.models = defaultModels;
+  agents.defaults = defaults;
+  cfg.agents = agents;
+
+  const after = JSON.stringify({
+    baseUrl: provider.baseUrl,
+    api: provider.api,
+    models: asFlexibleModelArray(provider.models),
+    defaultModels,
+  });
+  const changed = before !== after;
+  if (changed) {
+    writeOpenclawConfig(cfg);
+  }
+
+  return {
+    changed,
+    models: asFlexibleModelArray(provider.models).map((model) => `openai-codex/${model.id}`),
+  };
+}
+
+function ensureConfiguredModelAliasesInConfig(): { changed: boolean; models: string[] } {
+  const cfg = readOpenclawConfig();
+  const modelsNode = ensureRecord(cfg.models);
+  const providers = ensureRecord(modelsNode.providers);
+  const agents = ensureRecord(cfg.agents);
+  const defaults = ensureRecord(agents.defaults);
+  const defaultModels = ensureRecord(defaults.models);
+  const before = JSON.stringify(defaultModels);
+  const refs: string[] = [];
+
+  for (const [providerId, providerRaw] of Object.entries(providers)) {
+    const provider = ensureRecord(providerRaw);
+    const providerModels = providerId === 'openai-codex'
+      ? mergeOpenAiCodexModels(provider.models)
+      : asFlexibleModelArray(provider.models);
+    for (const model of providerModels) {
+      const modelId = String(model.id || '').trim();
+      if (!providerId || !modelId) continue;
+      const modelRef = normalizeModelAlias(`${providerId}/${modelId}`);
+      refs.push(modelRef);
+      defaultModels[modelRef] = {
+        ...ensureRecord(defaultModels[modelRef]),
+        alias: String(model.name || modelId).trim() || modelId,
+      };
+    }
+  }
+
+  defaults.models = defaultModels;
+  agents.defaults = defaults;
+  cfg.agents = agents;
+
+  const changed = before !== JSON.stringify(defaultModels);
+  if (changed) {
+    writeOpenclawConfig(cfg);
+  }
+
+  return { changed, models: refs };
+}
 
 function parseOpenclawConfigText(raw: string): Record<string, unknown> {
   try {
@@ -3275,7 +3823,18 @@ function parseOpenclawConfigText(raw: string): Record<string, unknown> {
       .replace(/^\s*\/\/.*$/gm, '')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/,(\s*[}\]])/g, '$1');
-    return JSON.parse(cleaned) as Record<string, unknown>;
+    try {
+      return JSON.parse(cleaned) as Record<string, unknown>;
+    } catch (jsonErr) {
+      // OpenClaw allows JSON5-like config files with unquoted object keys.
+      // The file is user-local config, not remote input; parsing it as an object
+      // literal keeps AxonClawX repair/write flows aligned with OpenClaw.
+      try {
+        return Function(`"use strict"; return (${raw});`)() as Record<string, unknown>;
+      } catch {
+        throw jsonErr;
+      }
+    }
   }
 }
 
@@ -3309,7 +3868,31 @@ function writeAxonclawxConfig(config: Record<string, unknown>): void {
   fs.writeFileSync(AXONCLAWX_CFG_PATH, JSON.stringify(config, null, 2), 'utf8');
 }
 
+function isRedactedSecretValue(value: unknown): boolean {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  return text === '__OPENCLAW_REDACTED__'
+    || text === '[REDACTED]'
+    || text.toLowerCase() === '<redacted>'
+    || /^\*+ED__$/.test(text);
+}
+
+function preserveExistingSecretIfRedacted(
+  nextOwner: Record<string, unknown>,
+  existingOwner: Record<string, unknown>,
+  key: string,
+): void {
+  if (!isRedactedSecretValue(nextOwner[key])) return;
+  const existingSecret = String(existingOwner[key] || '').trim();
+  if (existingSecret && !isRedactedSecretValue(existingSecret)) {
+    nextOwner[key] = existingSecret;
+    return;
+  }
+  delete nextOwner[key];
+}
+
 function writeOpenclawConfig(config: Record<string, unknown>): void {
+  const existingConfig = readOpenclawConfig();
   // Global guard: OpenClaw schema rejects setupComplete at root/ui and rejects axonclawx.
   if ('setupComplete' in config) {
     delete (config as Record<string, unknown>).setupComplete;
@@ -3325,10 +3908,62 @@ function writeOpenclawConfig(config: Record<string, unknown>): void {
     delete ui.language;
   }
   config.ui = ui;
+  const gateway = ensureRecord(config.gateway);
+  const existingGateway = ensureRecord(existingConfig.gateway);
+  const gatewayAuth = ensureRecord(gateway.auth);
+  const existingGatewayAuth = ensureRecord(existingGateway.auth);
+  preserveExistingSecretIfRedacted(gatewayAuth, existingGatewayAuth, 'token');
+  gateway.auth = gatewayAuth;
+  config.gateway = gateway;
   const models = ensureRecord(config.models);
   if ('default' in models) {
     delete models.default;
   }
+  const providers = ensureRecord(models.providers);
+  const existingModels = ensureRecord(existingConfig.models);
+  const existingProviders = ensureRecord(existingModels.providers);
+  const providerUiOnlyKeys = [
+    'accountId',
+    'vendorId',
+    'label',
+    'authMode',
+    'apiProtocol',
+    'model',
+    'enabled',
+    'createdAt',
+    'updatedAt',
+    'fallbackModels',
+    'fallbackAccountIds',
+    'fallbackProviderIds',
+    'email',
+    'metadata',
+  ];
+  for (const [providerId, providerRaw] of Object.entries(providers)) {
+    const provider = ensureRecord(providerRaw);
+    const existingProvider = ensureRecord(existingProviders[providerId]);
+    let changed = false;
+    preserveExistingSecretIfRedacted(provider, existingProvider, 'apiKey');
+    for (const key of providerUiOnlyKeys) {
+      if (key in provider) {
+        delete provider[key];
+        changed = true;
+      }
+    }
+    if (providerId === 'openai' && !String(provider.apiKey || '').trim()) {
+      delete providers[providerId];
+      continue;
+    }
+    if (providerId === 'openai-codex') {
+      provider.baseUrl = 'https://chatgpt.com/backend-api';
+      provider.api = 'openai-codex-responses';
+      provider.models = mergeOpenAiCodexModels(provider.models);
+      changed = true;
+    }
+    if (changed) {
+      providers[providerId] = provider;
+    }
+  }
+  models.providers = providers;
   config.models = models;
   const dir = nodePath.dirname(OPENCLAW_CFG_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -3678,7 +4313,7 @@ function inferLocalProviderAuthMode(providerId: string, providerObj: Record<stri
     return 'local';
   }
   const hasApiKey = String(providerObj.apiKey || '').trim().length > 0;
-  if (normalized === 'openai' && !hasApiKey) {
+  if ((normalized === 'openai' || normalized === 'openai-codex') && !hasApiKey) {
     return 'oauth_browser';
   }
   return 'api_key';
@@ -4038,15 +4673,12 @@ function findCodexLikeProviderId(providers: Record<string, unknown>): string | n
 function normalizeProviderAlias(providerId: string): string {
   const value = String(providerId || '').trim();
   if (!value) return '';
-  const lower = value.toLowerCase();
-  if (lower === 'openai-codex') return 'openai';
   return value;
 }
 
 function providerAliasSet(providerId: string): Set<string> {
   const normalized = normalizeProviderAlias(providerId);
   const aliases = new Set<string>([normalized]);
-  if (normalized === 'openai') aliases.add('openai-codex');
   if (normalized === 'openai-codex') aliases.add('openai');
   return aliases;
 }
@@ -4202,7 +4834,7 @@ function readMainAgentAuthProfileProviders(): Array<{ providerId: string; keyMas
       const providerId = normalizeProviderAlias(String(profile.provider || '').trim());
       if (!providerId) continue;
       const key = String(profile.key || '').trim();
-      const keyMasked = key ? maskProviderKey(key) : null;
+      const keyMasked = key && !isRedactedSecretValue(key) ? maskProviderKey(key) : null;
       if (!providerMap.has(providerId)) {
         providerMap.set(providerId, { providerId, keyMasked });
         continue;
@@ -4223,6 +4855,7 @@ function ensureMainAgentAuthProfile(providerId: string, apiKey: string, source =
   const normalizedProvider = normalizeProviderAlias(providerId);
   const key = String(apiKey || '').trim();
   if (!normalizedProvider || !key) return false;
+  if (isRedactedSecretValue(key)) return false;
   if ((normalizedProvider === 'openai' || normalizedProvider === 'openai-codex') && !isLikelyOpenAiApiKey(key)) {
     return false;
   }
@@ -4599,7 +5232,9 @@ function getGatewayControlUiInfo(): {
 }
 
 async function runOpenClawDoctor(mode: OpenClawDoctorMode): Promise<OpenClawDoctorResult> {
-  const command = mode === 'fix' ? 'openclaw doctor --fix --json' : 'openclaw doctor --json';
+  const command = mode === 'fix'
+    ? 'openclaw doctor --fix --non-interactive --yes'
+    : 'openclaw doctor --non-interactive';
   const startedAt = Date.now();
   try {
     const { stdout, stderr } = await execAsync(command, {
@@ -5084,7 +5719,9 @@ function applyCodexQuickConnect(options?: {
   addedModels: string[];
   credentialAccepted: boolean;
 } {
-  const preferredModel = (options?.preferredModel || 'gpt-5.4').trim();
+  const preferredModel = normalizeModelAlias(options?.preferredModel || 'gpt-5.4-mini')
+    .replace(/^openai-codex\//, '')
+    .trim();
   const fallbackModel = (options?.fallbackModel || 'gpt-5.3-codex').trim();
 
   const cfg = readOpenclawConfig();
@@ -7066,6 +7703,19 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
           }
         }
       }
+      if (!result.ok) {
+        const rpcProbe = await callGatewayRpcWithRetry('sessions.list', { limit: 1 }, 8000);
+        if (rpcProbe.ok) {
+          result = {
+            ok: true,
+            json: {
+              running: true,
+              runtime: 'Electron',
+              detail: `RPC 可用，端口 ${getResolvedGatewayPort()}`,
+            },
+          };
+        }
+      }
       return { ok: true, data: { status: 200, json: result.json, ok: true }, success: true, status: 200, json: result.json };
     }
 
@@ -7724,6 +8374,87 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
       return { ok: true, data: { status: 200, json: { content, hasMore: false }, ok: true }, success: true, status: 200, json: { content, hasMore: false } };
     }
 
+    // 会话删除：软删除本地 JSONL，避免刷新后被本地 fallback 再次恢复。
+    if (path === '/api/sessions/delete' && method === 'POST') {
+      try {
+        const payload = body
+          ? (typeof body === 'string' ? JSON.parse(body) : body)
+          : {};
+        const sessionKey = String((payload as { sessionKey?: unknown }).sessionKey || '').trim();
+        const indexEntry = readLocalSessionIndexEntry(sessionKey);
+        const sessionId = indexEntry?.sessionId || parseSessionIdFromKey(sessionKey);
+        if (!sessionId) {
+          return {
+            ok: true,
+            data: { status: 200, json: { success: false, error: 'Invalid session key' }, ok: true },
+            success: true,
+            status: 200,
+            json: { success: false, error: 'Invalid session key' },
+          };
+        }
+
+        const agentId = indexEntry?.agentId || (sessionKey.startsWith('agent:')
+          ? sessionKey.split(':')[1] || 'main'
+          : 'main');
+        const sessionDirs = Array.from(new Set([
+          nodePath.join(os.homedir(), '.openclaw', 'agents', agentId, 'sessions'),
+          nodePath.join(os.homedir(), '.openclaw', 'agents', 'main', 'sessions'),
+        ]));
+
+        let deletedPath = '';
+        const candidateFiles = [
+          indexEntry?.sessionFile || '',
+          ...sessionDirs.map((dir) => nodePath.join(dir, `${sessionId}.jsonl`)),
+        ].filter(Boolean);
+        for (const dir of sessionDirs) {
+          const source = candidateFiles.find((file) => file.startsWith(dir) && fs.existsSync(file))
+            || nodePath.join(dir, `${sessionId}.jsonl`);
+          const deleted = nodePath.join(dir, `${sessionId}.deleted.jsonl`);
+          if (fs.existsSync(source)) {
+            fs.renameSync(source, deleted);
+            deletedPath = deleted;
+            break;
+          }
+          if (fs.existsSync(deleted)) {
+            deletedPath = deleted;
+            break;
+          }
+        }
+        const indexFile = nodePath.join(os.homedir(), '.openclaw', 'agents', agentId, 'sessions', 'sessions.json');
+        if (sessionKey && fs.existsSync(indexFile)) {
+          try {
+            const index = JSON.parse(fs.readFileSync(indexFile, 'utf8')) as Record<string, unknown>;
+            const records = index.sessions && typeof index.sessions === 'object' && !Array.isArray(index.sessions)
+              ? index.sessions as Record<string, unknown>
+              : index;
+            const keyToDelete = indexEntry?.key || sessionKey;
+            if (Object.prototype.hasOwnProperty.call(records, keyToDelete)) {
+              delete records[keyToDelete];
+              fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
+            }
+          } catch (err) {
+            console.warn('[HostAPI] failed to remove session index entry:', err);
+          }
+        }
+
+        return {
+          ok: true,
+          data: { status: 200, json: { success: true, deletedPath }, ok: true },
+          success: true,
+          status: 200,
+          json: { success: true, deletedPath },
+        };
+      } catch (err) {
+        return {
+          ok: true,
+          data: { status: 200, json: { success: false, error: String(err) }, ok: true },
+          success: true,
+          status: 200,
+          json: { success: false, error: String(err) },
+        };
+      }
+    }
+
     // 活动监控：/api/sessions/usage - 聚合会话用量（AxonClawX 风格）
     if ((path === '/api/sessions/usage' || path.startsWith('/api/sessions/usage?')) && method === 'GET') {
       try {
@@ -7925,14 +8656,16 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
         const url = new URL(path, 'http://localhost');
         const limit = parseInt(url.searchParams.get('limit') || '200', 10) || 200;
         const offset = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
-        const list = listTaskRuns(limit, offset);
-        const hasMore = list.length >= Math.max(1, Math.min(1000, limit));
+        const safeLimit = Math.max(1, Math.min(1000, limit));
+        const fetched = listTaskRuns(Math.min(1000, safeLimit + 1), offset);
+        const hasMore = fetched.length > safeLimit;
+        const list = hasMore ? fetched.slice(0, safeLimit) : fetched;
         return {
           ok: true,
-          data: { status: 200, json: { runs: list, offset, limit, hasMore, nextOffset: offset + list.length }, ok: true },
+          data: { status: 200, json: { runs: list, offset, limit: safeLimit, hasMore, nextOffset: offset + list.length }, ok: true },
           success: true,
           status: 200,
-          json: { runs: list, offset, limit, hasMore, nextOffset: offset + list.length },
+          json: { runs: list, offset, limit: safeLimit, hasMore, nextOffset: offset + list.length },
         };
       } catch (err) {
         return {
@@ -9012,8 +9745,11 @@ ipcMain.handle('hostapi:fetch', async (_event, { path, method, headers, body }) 
       try {
         const params = typeof body === 'string' ? JSON.parse(body) : (body as { method?: string; params?: Record<string, unknown> });
         const rpcMethod = params?.method ?? '';
-        const rpcParams = params?.params ?? {};
-        const r = await callGatewayRpcWithRetry(rpcMethod, rpcParams);
+        let rpcParams = params?.params ?? {};
+        if (rpcMethod === 'chat.send' && rpcParams && typeof rpcParams === 'object') {
+          rpcParams = await normalizeChatSendParams(rpcParams as Record<string, unknown>);
+        }
+        const r = await callGatewayRpcWithRetry(rpcMethod, rpcParams, getGatewayRpcTimeoutMs(rpcMethod));
         if (!r.ok) {
           // Gateway RPC 失败，返回错误让前端能检测到
           return {

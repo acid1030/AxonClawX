@@ -515,7 +515,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ embedded, onNavigateTo }) =
                   </p>
                 </div>
 
-                <div className={cn(cardClass, 'p-4')}>
+                <div className="rounded-xl border border-white/10 bg-[#1e293b] p-4 overflow-visible">
                   <ProviderContent
                     providers={SETUP_PROVIDERS}
                     selectedProvider={providerSelected}

@@ -13,6 +13,17 @@ type FlatModel = {
   baseUrl?: string;
 };
 
+const OPENAI_CODEX_MODEL_CATALOG = [
+  { id: 'gpt-5.5', name: 'GPT-5.5' },
+  { id: 'gpt-5.4-mini', name: 'GPT-5.4-Mini' },
+  { id: 'gpt-5.3-codex', name: 'GPT-5.3-Codex' },
+];
+
+function isUnsupportedOpenAiCodexModel(providerId: string, modelId: string): boolean {
+  return String(providerId || '').trim().toLowerCase() === 'openai-codex'
+    && /^gpt-5\.2-codex$/i.test(String(modelId || '').trim());
+}
+
 function sanitizeProviderConfigKey(raw: string): string {
   const cleaned = raw
     .trim()
@@ -57,7 +68,7 @@ function flattenModels(modelsNode: Record<string, unknown> | null | undefined): 
     for (const item of models) {
       if (typeof item === 'string') {
         const modelId = item.trim();
-        if (!modelId) continue;
+        if (!modelId || isUnsupportedOpenAiCodexModel(providerId, modelId)) continue;
         out.push({
           path: `${providerId}/${modelId}`,
           providerId,
@@ -70,7 +81,7 @@ function flattenModels(modelsNode: Record<string, unknown> | null | undefined): 
       }
       const modelObj = (item as Record<string, unknown>) || {};
       const modelId = String(modelObj.id || '').trim();
-      if (!modelId) continue;
+      if (!modelId || isUnsupportedOpenAiCodexModel(providerId, modelId)) continue;
       const displayName = String(modelObj.name || modelId).trim();
       out.push({
         path: `${providerId}/${modelId}`,
@@ -81,9 +92,21 @@ function flattenModels(modelsNode: Record<string, unknown> | null | undefined): 
         baseUrl,
       });
     }
+    if (String(providerId || '').trim().toLowerCase() === 'openai-codex') {
+      for (const model of OPENAI_CODEX_MODEL_CATALOG) {
+        out.push({
+          path: `${providerId}/${model.id}`,
+          providerId,
+          modelId: model.id,
+          displayName: model.name,
+          configured,
+          baseUrl,
+        });
+      }
+    }
   }
 
-  return out;
+  return Array.from(new Map(out.map((item) => [item.path, item])).values());
 }
 
 type ApiProtocol = 'openai-completions' | 'openai-responses' | 'anthropic-messages';

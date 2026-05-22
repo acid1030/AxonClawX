@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开源工具导航 — AxonClawX</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0a0f;--bg2:#12121a;--bg3:#1a1a26;--text:#e8e8f0;--text2:#a0a0b8;--text3:#6a6a82;--accent:#7c5cfc;--accent2:#a78bfa;--cyan:#06b6d4;--radius:12px;--max:1100px}
+html{scroll-behavior:smooth;font-size:16px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);line-height:1.75;min-height:100vh}
+a{color:var(--accent2);text-decoration:none;transition:color .2s}
+a:hover{color:#c4b5fd}
+.container{max-width:var(--max);margin:0 auto;padding:0 24px}
+nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(16px);background:rgba(10,10,15,.85);border-bottom:1px solid rgba(124,92,252,.12)}
+nav .inner{display:flex;align-items:center;justify-content:space-between;height:56px;max-width:var(--max);margin:0 auto;padding:0 24px}
+nav .logo{font-size:1.05rem;font-weight:800}
+nav .logo span{color:var(--accent2)}
+.hero{padding:56px 0 32px;text-align:center}
+.hero h1{font-size:clamp(1.5rem,4vw,2.1rem);font-weight:800;margin-bottom:12px}
+.gradient-text{background:linear-gradient(135deg,var(--accent2),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero .sub{font-size:.95rem;color:var(--text2);max-width:640px;margin:0 auto;line-height:1.65}
+.section{padding:24px 0 80px}
+.section-tag{display:inline-block;padding:4px 12px;border-radius:20px;font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;background:rgba(124,92,252,.1);color:var(--accent2)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.card{background:var(--bg2);border:1px solid var(--bg3);border-radius:var(--radius);padding:26px;transition:border-color .2s,transform .2s}
+.card:hover{border-color:rgba(124,92,252,.35);transform:translateY(-2px)}
+.card h2{font-size:1.15rem;font-weight:700;margin-bottom:10px}
+.card p{font-size:.9rem;color:var(--text2);line-height:1.65;margin-bottom:16px}
+.card .cta{display:inline-flex;align-items:center;gap:6px;font-size:.88rem;font-weight:600;color:var(--accent2)}
+.card .links{margin-top:12px;padding-top:12px;border-top:1px solid var(--bg3);font-size:.82rem;color:var(--text3)}
+.card .links a{display:block;margin:6px 0;color:var(--text2)}
+.card .links a:hover{color:var(--accent2)}
+footer{padding:32px 0;border-top:1px solid var(--bg3);text-align:center;font-size:.82rem;color:var(--text3)}
+</style>
+</head>
+<body>
+<nav>
+  <div class="inner">
+    <a href="../index.html" class="logo">Axon<span>ClawX</span> <span style="font-weight:500;font-size:.75rem;color:var(--text3)">开源工具</span></a>
+    <a href="../index.html" style="font-size:.86rem;color:var(--text2)">← 返回首页</a>
+  </div>
+</nav>
+<section class="hero">
+  <div class="container">
+    <h1><span class="gradient-text">开源工具导航</span></h1>
+    <p class="sub">按场景分类收录 GitHub 上的优质开源项目。本站仅做索引与简介，使用请以各仓库 LICENSE 与官方文档为准。</p>
+  </div>
+</section>
+<section class="section">
+  <div class="container">
+    <span class="section-tag">分类入口</span>
+    <div class="grid" style="margin-top:8px">
+      <article class="card">
+        <h2>视频与多媒体</h2>
+        <p>文生视频、工作流、剪辑、配音与素材工具面板，持续扩充中。</p>
+        <a class="cta" href="../kai-video/index.html">进入开视频工具面板 →</a>
+        <div class="links">
+          <span style="color:var(--text3)">路径：</span><code style="font-size:.78rem;color:var(--text2)">/kai-video/</code>
+        </div>
+      </article>
+      <article class="card">
+        <h2>Agent 与编排</h2>
+        <p>多智能体框架、可观测性、应用编排等，适合搭建自动化与对话式产品。</p>
+        <a class="cta" href="agents.html">查看推荐列表 →</a>
+        <div class="links">
+          <a href="https://github.com/langchain-ai/langchain" target="_blank" rel="noopener noreferrer">LangChain</a>
+          <a href="https://github.com/microsoft/autogen" target="_blank" rel="noopener noreferrer">AutoGen</a>
+          <a href="https://github.com/langfuse/langfuse" target="_blank" rel="noopener noreferrer">Langfuse</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2>LLM 与服务化</h2>
+        <p>本地/服务端推理、高性能服务与桌面客户端，便于私有化部署。</p>
+        <a class="cta" href="llm-infra.html">查看推荐列表 →</a>
+        <div class="links">
+          <a href="https://github.com/ollama/ollama" target="_blank" rel="noopener noreferrer">Ollama</a>
+          <a href="https://github.com/vllm-project/vllm" target="_blank" rel="noopener noreferrer">vLLM</a>
+          <a href="https://github.com/ggerganov/llama.cpp" target="_blank" rel="noopener noreferrer">llama.cpp</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2>自动化与集成</h2>
+        <p>工作流、低代码编排与 API 胶水层，把模型与业务系统串起来。</p>
+        <a class="cta" href="automation.html">查看推荐列表 →</a>
+        <div class="links">
+          <a href="https://github.com/n8n-io/n8n" target="_blank" rel="noopener noreferrer">n8n</a>
+          <a href="https://github.com/FlowiseAI/Flowise" target="_blank" rel="noopener noreferrer">Flowise</a>
+          <a href="https://github.com/huggingface/smolagents" target="_blank" rel="noopener noreferrer">smolagents</a>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+<footer>
+  <div class="container">
+    <p>AxonClawX 学习笔记站 · 外链版权归原作者 · <a href="../index.html">首页</a></p>
+  </div>
+</footer>
+</body>
+</html>

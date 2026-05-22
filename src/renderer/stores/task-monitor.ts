@@ -493,11 +493,16 @@ export const useTaskMonitorStore = create<TaskMonitorState>((set, get) => ({
       }
 
       const run = runs[idx];
-      const isChildEvent = Boolean(event.runId && run.runId !== event.runId && (run.childRunIds || []).includes(event.runId));
+      const isDifferentRunSameSession = Boolean(event.runId && run.runId && run.runId !== event.runId);
+      const isKnownChildRun = Boolean(event.runId && (run.childRunIds || []).includes(event.runId));
+      const isChildEvent = isKnownChildRun || isDifferentRunSameSession;
       let next: TaskRunRecord = {
         ...run,
         runId: run.runId || event.runId || null,
         agentId: run.agentId || event.agentId || extractAgentId(event.sessionKey),
+        childRunIds: isChildEvent && event.runId
+          ? Array.from(new Set([...(run.childRunIds || []), event.runId]))
+          : run.childRunIds,
       };
 
       const stateName = event.state;

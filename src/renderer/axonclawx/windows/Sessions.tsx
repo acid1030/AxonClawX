@@ -814,27 +814,19 @@ const Sessions: React.FC<SessionsProps> = ({ language, pendingSessionKey, onSess
       let model = String(localSession?.model || '').trim();
       let provider = String(localSession?.modelProvider || '').trim();
       let thinkingLevel = String(localSession?.thinkingLevel || '').trim();
-      if (!model || !provider) {
-        try {
-          const sessionResult = await gwApi.proxy('sessions.list', { limit: 100 }) as any;
-          const sessionList = Array.isArray(sessionResult?.sessions) ? sessionResult.sessions : [];
-          const remoteSession = sessionList.find((s: any) => String(s?.key || '') === sessionKey);
-          model = String(remoteSession?.model || remoteSession?.modelOverride || model || sessionResult?.defaults?.model || '').trim();
-          provider = String(remoteSession?.modelProvider || remoteSession?.providerOverride || provider || sessionResult?.defaults?.modelProvider || '').trim();
-          thinkingLevel = String(remoteSession?.thinkingLevel || thinkingLevel || sessionResult?.defaults?.thinkingLevel || '').trim();
-        } catch (err) {
-          console.warn('[Sessions] failed to inspect model before send:', err);
-        }
-      }
       if (shouldForceDeepSeekV4ThinkingOff(model, provider) && thinkingLevel !== 'off') {
         await gwApi.proxy('sessions.patch', { key: sessionKey, thinkingLevel: 'off' });
         setSessions(prev => prev.map(s => s.key === sessionKey ? { ...s, thinkingLevel: 'off' } : s));
+        thinkingLevel = 'off';
       }
 
       const res = await gwApi.proxy('chat.send', {
         sessionKey,
         message: msg,
         idempotencyKey,
+        ...(model ? { model } : {}),
+        ...(provider ? { modelProvider: provider } : {}),
+        ...(thinkingLevel ? { thinkingLevel } : {}),
       }) as any;
       const nextRunId = res?.runId || idempotencyKey;
       setRunId(nextRunId);

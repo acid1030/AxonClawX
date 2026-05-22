@@ -37,7 +37,11 @@ nav .links{display:flex;gap:24px;font-size:.88rem;color:var(--text2)}
 nav .links a:hover{color:var(--text)}
 nav .gh-link{padding:7px 16px;border-radius:8px;border:1px solid var(--bg4);color:var(--text2);font-size:.84rem;transition:border-color .2s}
 nav .gh-link:hover{border-color:var(--accent);color:var(--text)}
-@media(max-width:768px){nav .links{display:none}}
+.nav-tools-link{display:none;font-size:.86rem;font-weight:600;color:var(--accent2);padding:6px 10px}
+@media(max-width:768px){
+  nav .links{display:none}
+  .nav-tools-link{display:inline-flex !important;align-items:center}
+}
 
 /* ── Hero ── */
 .hero{padding:140px 0 80px;text-align:center;position:relative;overflow:hidden}
@@ -139,12 +143,14 @@ footer .flinks{display:flex;justify-content:center;gap:20px;margin-bottom:10px}
   <div class="inner">
     <div class="logo">Axon<span>ClawX</span> <span style="font-weight:400;font-size:.72rem;color:var(--text3);margin-left:4px">学习笔记</span></div>
     <div class="links">
+      <a href="open-tools/">开源工具</a>
       <a href="#about">项目介绍</a>
       <a href="#features">功能记录</a>
       <a href="#arch">架构笔记</a>
       <a href="#models">模型适配</a>
       <a href="#notes">对比笔记</a>
     </div>
+    <a href="open-tools/" class="nav-tools-link">开源工具</a>
     <a class="gh-link" href="https://github.com/acid1030/AxonClawX" target="_blank" rel="noopener noreferrer">GitHub 源码</a>
   </div>
 </nav>
